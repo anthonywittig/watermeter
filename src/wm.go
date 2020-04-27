@@ -44,18 +44,19 @@ func main() {
 		meter.Detect(rpio.FallEdge) // enable falling edge event detection
 		defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
-		defer fmt.Println("this is a defer!")
-
+		currentState := meter.EdgeDetected()
 		for {
 			select {
 			case <-quit:
 				fmt.Println("\r- Ctrl+C pressed in Terminal")
 				return
 			case <-wmTick:
-				fmt.Println("tick!")
-				if meter.EdgeDetected() { // check if event occured
-					fmt.Println("wm on!")
-					led.Toggle()
+				if meter.EdgeDetected() != currentState {
+					currentState = !currentState
+					if currentState {
+						fmt.Printf("wm pulse @ %s\n", time.Now().Format("2006-01-02 15:04:05"))
+						led.Toggle()
+					}
 				}
 			}
 		}
