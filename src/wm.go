@@ -5,6 +5,7 @@ import (
 	"github.com/stianeikeland/go-rpio"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -18,56 +19,48 @@ var (
 )
 
 func main() {
-	// Open and map memory to access gpio, check for errors
-	if err := rpio.Open(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	var wg sync.WaitGroup
+	wg.Add(1)
 
-	// Unmap gpio memory when done
-	defer rpio.Close()
+	quit := make(chan os.Signal)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
-	// Set led to output mode
-	led.Output()
+	wmTick := time.Tick(100 * time.Millisecond)
 
-	/*
-	// Toggle led 20 times
-	for x := 0; x < 20; x++ {
-		led.Toggle()
-		time.Sleep(time.Second)
-	}
-	*/
-
-
-	meter.Input()
-	meter.PullUp()
-	meter.Detect(rpio.FallEdge) // enable falling edge event detection
-	defer meter.Detect(rpio.NoEdge) // disable edge event detection
-
-	defer fmt.Println("this is a defer!")
-
-
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-c
-		fmt.Println("\r- Ctrl+C pressed in Terminal")
+		defer wg.Done()
 
-		// Clean up
-		rpio.Close()
-		meter.Detect(rpio.NoEdge)
+		// Open and map memory to access gpio, check for errors
+		if err := rpio.Open(); err != nil {
+			fmt.Println(err)
+			return
+		}
 
-		os.Exit(0)
+		// Set led to output mode
+		led.Output()
+
+		meter.Input()
+		meter.PullUp()
+		meter.Detect(rpio.FallEdge) // enable falling edge event detection
+		defer meter.Detect(rpio.NoEdge) // disable edge event detection
+
+		defer fmt.Println("this is a defer!")
+
+		for {
+			select {
+			case <-quit:
+				fmt.Println("\r- Ctrl+C pressed in Terminal")
+				return
+			case <-wmTick:
+				fmt.Println("tick!")
+				if meter.EdgeDetected() { // check if event occured
+					fmt.Println("wm on!")
+					led.Toggle()
+				}
+			}
+		}
+
 	}()
 
-	fmt.Println("press a button")
-
-	for i := 0; i < (5 * 20); {
-		if meter.EdgeDetected() { // check if event occured
-			fmt.Println("button pressed")
-			led.Toggle()
-			i++
-		}
-		time.Sleep(time.Second / 5)
-	}
+	wg.Wait()
 }
