@@ -1,0 +1,13 @@
+[Unit]
+Description=watermeter
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStart=/home/pi/projects/watermeter/bin/watermeter
+
+[Install]
+WantedBy=multi-user.target
