@@ -10,7 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v4"
+	//_ "github.com/jackc/pgx/v4"
+	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/stianeikeland/go-rpio"
 )
@@ -31,7 +32,10 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	db, _ := sql.Open("postgres", os.Getenv("DATABASE_CONNECTION"))
+	db, err := sql.Open("pgx", os.Getenv("DATABASE_CONNECTION"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
@@ -39,8 +43,7 @@ func main() {
 
 	// Need context to handle cleaning up DB?
 
-	handleData(db, time.Now())
-	return
+	//handleData(db, time.Now().UTC())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
