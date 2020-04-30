@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	//_ "github.com/jackc/pgx/v4"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/stianeikeland/go-rpio"
@@ -46,13 +45,15 @@ func main() {
 	//handleData(db, time.Now().UTC())
 
 	var wg sync.WaitGroup
-	wg.Add(1)
 
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
+	pulse := make(chan time.Time, 50)
+
 	wmTick := time.Tick(200 * time.Millisecond)
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
@@ -67,39 +68,35 @@ func main() {
 
 		meter.Input()
 		meter.PullUp()
-		meter.Detect(rpio.FallEdge)     // enable falling edge event detection
-		defer meter.Detect(rpio.NoEdge) // disable edge event detection
-
-		// this is probably just wrong currentState := meter.EdgeDetected()
+		//meter.Detect(rpio.FallEdge)     // enable falling edge event detection
+		//defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
 		lastState := rpio.High
-		//lastTime := time.Now().UnixNano() / 1000000
 		for {
 			select {
 			case <-quit:
 				fmt.Println("shutting down!")
+				close(pulse)
 				return
 			case <-wmTick:
 				// look at https://github.com/stianeikeland/go-rpio/issues/46#issuecomment-524267649
 				state := meter.Read()
 				if state == rpio.Low && state != lastState {
-					//now := time.Now().UnixNano() / 1000000
-					//diff := now - lastTime
-					//lastTime = now
-					fmt.Printf("wm pulse @ %s\n", time.Now().Format("2006-01-02 15:04:05"))
+					now := time.Now().UTC()
+					fmt.Printf("wm pulse @ %s\n", now.Format(time.RFC3339))
+					pulse <- now
 					led.Toggle()
 				}
 				lastState = state
-
-				/*
-					if meter.EdgeDetected() != currentState {
-						currentState = !currentState
-						if currentState {
-							fmt.Printf("wm pulse @ %s\n", time.Now().Format("2006-01-02 15:04:05"))
-						}
-					}
-				*/
 			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for recordedAt := range pulse {
+			handleData(db, recordedAt)
 		}
 
 	}()
