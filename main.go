@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v4"
+	_ "github.com/jackc/pgx/v4"
 	"github.com/joho/godotenv"
 	"github.com/stianeikeland/go-rpio"
 )
@@ -31,7 +31,15 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	handleData(time.Time{})
+	db, _ := sql.Open("postgres", os.Getenv("DATABASE_CONNECTION"))
+	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	// Need context to handle cleaning up DB?
+
+	handleData(db, time.Now())
 	return
 
 	var wg sync.WaitGroup
@@ -56,7 +64,7 @@ func main() {
 
 		meter.Input()
 		meter.PullUp()
-		meter.Detect(rpio.FallEdge) // enable falling edge event detection
+		meter.Detect(rpio.FallEdge)     // enable falling edge event detection
 		defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
 		// this is probably just wrong currentState := meter.EdgeDetected()
@@ -81,12 +89,12 @@ func main() {
 				lastState = state
 
 				/*
-				if meter.EdgeDetected() != currentState {
-					currentState = !currentState
-					if currentState {
-						fmt.Printf("wm pulse @ %s\n", time.Now().Format("2006-01-02 15:04:05"))
+					if meter.EdgeDetected() != currentState {
+						currentState = !currentState
+						if currentState {
+							fmt.Printf("wm pulse @ %s\n", time.Now().Format("2006-01-02 15:04:05"))
+						}
 					}
-				}
 				*/
 			}
 		}
@@ -96,22 +104,27 @@ func main() {
 	wg.Wait()
 }
 
-func handleData(recordedAt time.Time) {
-	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_CONNECTION"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
-		os.Exit(1)
+func handleData(db *sql.DB, recordedAt time.Time) {
+	if _, err := db.Exec("insert into meter (recorded_at) values ($1)", recordedAt); err != nil {
+		log.Printf("error inserting into db, continueing. %s\n", err.Error())
 	}
-	defer conn.Close(context.Background())
+	/*
+		conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_CONNECTION"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+			os.Exit(1)
+		}
+		defer conn.Close(context.Background())
+	*/
 
 	/*
-	var name string
-	var weight int64
-	err = conn.QueryRow(context.Background(), "select id, recorded_at from meter").Scan(&name, &weight)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "QueryRow failed: %v\n", err)
-		os.Exit(1)
-	}
+		var name string
+		var weight int64
+		err = conn.QueryRow(context.Background(), "select id, recorded_at from meter").Scan(&name, &weight)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "QueryRow failed: %v\n", err)
+			os.Exit(1)
+		}
 	*/
 
 }
