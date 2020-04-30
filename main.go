@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -26,10 +28,19 @@ var (
 func main() {
 	fmt.Println("starting up")
 
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	ex, err := os.Executable()
+	if err != nil { log.Fatal(err) }
+	dir := path.Dir(ex)
+	if strings.HasPrefix(dir, "/tmp/go-build") {
+		if err := godotenv.Load(); err != nil {
+			log.Fatal("Error loading .env file")
+		}
+	} else {
+		if err := godotenv.Load(dir + "/.env"); err != nil {
+			log.Fatal("Error loading .env file")
+		}
 	}
+
 
 	db, err := sql.Open("pgx", os.Getenv("DATABASE_CONNECTION"))
 	if err != nil {
@@ -106,7 +117,7 @@ func main() {
 
 func handleData(db *sql.DB, recordedAt time.Time) {
 	if _, err := db.Exec("insert into meter (recorded_at) values ($1)", recordedAt); err != nil {
-		log.Printf("error inserting into db, continueing. %s\n", err.Error())
+		log.Printf("error inserting into db, continuing. %s\n", err.Error())
 	}
 	/*
 		conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_CONNECTION"))
