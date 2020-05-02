@@ -45,7 +45,8 @@ func main() {
 	}
 	defer db.Close()
 
-	handlePrometheus()
+	// Need to shut this down nicely?
+	go handlePrometheus()
 
 	// Need context to handle cleaning up DB?
 
@@ -69,4 +70,7 @@ func handlePrometheus() {
 			EnableOpenMetrics: true,
 		},
 	))
+	if err := http.ListenAndServe(":8000", nil); err != nil {
+		log.Fatal(err)
+	}
 }
