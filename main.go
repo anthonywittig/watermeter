@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/anthonywittig/watermeter/watermeter/pulselisteners"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -42,6 +45,8 @@ func main() {
 	}
 	defer db.Close()
 
+	handlePrometheus()
+
 	// Need context to handle cleaning up DB?
 
 	wg := &sync.WaitGroup{}
@@ -54,4 +59,14 @@ func main() {
 	pulselisteners.HandlePulses(pulse, wg, db)
 
 	wg.Wait()
+}
+
+func handlePrometheus() {
+	http.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			// Opt into OpenMetrics to support exemplars.
+			EnableOpenMetrics: true,
+		},
+	))
 }

@@ -14,6 +14,7 @@ type PulseHandler interface {
 func HandlePulses(pulse chan time.Time, wg *sync.WaitGroup, db *sql.DB) {
 	handlers := []PulseHandler{
 		NewPulseRecorder(db),
+		NewPrometheusRecorder(),
 	}
 
 	wg.Add(1)
