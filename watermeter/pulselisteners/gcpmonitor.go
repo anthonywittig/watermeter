@@ -11,6 +11,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
 	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
+	"google.golang.org/genproto/googleapis/api/monitoredres"
 )
 
 type GcpMonitor struct {
@@ -41,9 +42,17 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 		TimeSeries: []*monitoringpb.TimeSeries{
 			{
 				Metric: &metricpb.Metric{
-					Type: "github.com/anthonywittig/watermeter/flow",
+					Type: "custom.googleapis.com/custom_measurement",
+					//Type: "github.com/anthonywittig/watermeter/flow",
 					Labels: map[string]string{
 						"environment": "STAGING",
+					},
+				},
+				Resource: &monitoredres.MonitoredResource{
+					Type: "gce_instance",
+					Labels: map[string]string{
+						"instance_id": "test-instance",
+						"zone":        "us-central1-f",
 					},
 				},
 				/*
@@ -61,10 +70,17 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 							EndTime:   recordedAtTimestamp,
 						},
 						Value: &monitoringpb.TypedValue{
-							Value: &monitoringpb.TypedValue_DoubleValue{
-								DoubleValue: 0.1,
+							Value: &monitoringpb.TypedValue_Int64Value{
+								Int64Value: 1,
 							},
 						},
+						/*
+							Value: &monitoringpb.TypedValue{
+								Value: &monitoringpb.TypedValue_DoubleValue{
+									DoubleValue: 0.1,
+								},
+							},
+						*/
 					},
 				},
 			},
