@@ -18,7 +18,7 @@ func HandlePulses(
 	gcpProjectID string,
 ) {
 	handlers := []PulseHandler{
-		NewGcpMonitor(db, gcpProjectID),
+		//NewGcpMonitor(db, gcpProjectID),
 		NewPulseRecorder(db),
 		NewPrometheusRecorder(),
 	}
