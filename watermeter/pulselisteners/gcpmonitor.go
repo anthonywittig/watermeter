@@ -5,16 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"math/rand"
 	"time"
 
-	"github.com/golang/protobuf/ptypes/timestamp"
-	"google.golang.org/genproto/googleapis/api/monitoredres"
-
 	monitoring "cloud.google.com/go/monitoring/apiv3"
-	//timestamp "github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/golang/protobuf/ptypes/timestamp"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
-	//monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
 )
 
@@ -24,65 +19,56 @@ type GcpMonitor struct {
 }
 
 func NewGcpMonitor(db *sql.DB, gcpProjectID string) *GcpMonitor {
-	if err := (&GcpMonitor{
-		db: db,
-		projectID: gcpProjectID,
-	}).writeTimeSeriesValue(); err != nil {
-		log.Fatal(err)
-	}
-
 	return &GcpMonitor{
-		db: db,
+		db:        db,
 		projectID: gcpProjectID,
 	}
 }
 
 func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
-	/*
-		if _, err := g.db.Exec("insert into meter (recorded_at) values ($1)", recordedAt); err != nil {
-			log.Printf("error inserting into db, continuing. %s\n", err.Error())
-			return err
-		}
-	*/
-	return nil
-}
-
-// writeTimeSeriesValue writes a value for the custom metric created
-func (g *GcpMonitor) writeTimeSeriesValue() error {
 	ctx := context.Background()
 	c, err := monitoring.NewMetricClient(ctx)
 	if err != nil {
 		return err
 	}
-	now := &timestamp.Timestamp{
-		Seconds: time.Now().Unix(),
+
+	recordedAtTimestamp := &timestamp.Timestamp{
+		Seconds: recordedAt.Unix(),
 	}
+
 	req := &monitoringpb.CreateTimeSeriesRequest{
 		Name: "projects/" + g.projectID,
-		TimeSeries: []*monitoringpb.TimeSeries{{Metric: &metricpb.Metric{
-			Type: "custom.googleapis.com/custom_measurement",
-			Labels: map[string]string{
-				"environment": "STAGING",
-			},
-		},
-			Resource: &monitoredres.MonitoredResource{
-				Type: "gce_instance",
-				Labels: map[string]string{
-					"instance_id": "test-instance",
-					"zone":        "us-central1-f",
-				},
-			},
-			Points: []*monitoringpb.Point{{Interval: &monitoringpb.TimeInterval{
-				StartTime: now,
-				EndTime:   now,
-			},
-				Value: &monitoringpb.TypedValue{
-					Value: &monitoringpb.TypedValue_Int64Value{
-						Int64Value: rand.Int63n(10),
+		TimeSeries: []*monitoringpb.TimeSeries{
+			{
+				Metric: &metricpb.Metric{
+					Type: "github.com/anthonywittig/watermeter/flow",
+					Labels: map[string]string{
+						"environment": "STAGING",
 					},
 				},
-			}},
-		}},
+				/*
+					Resource: &monitoredres.MonitoredResource{
+						Type: "location",
+						Labels: map[string]string{
+							"name": "home",
+						},
+					},
+				*/
+				Points: []*monitoringpb.Point{
+					{
+						Interval: &monitoringpb.TimeInterval{
+							StartTime: recordedAtTimestamp,
+							EndTime:   recordedAtTimestamp,
+						},
+						Value: &monitoringpb.TypedValue{
+							Value: &monitoringpb.TypedValue_DoubleValue{
+								DoubleValue: 0.1,
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	log.Printf("writeTimeseriesRequest: %+v\n", req)
 
