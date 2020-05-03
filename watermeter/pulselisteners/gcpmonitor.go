@@ -12,9 +12,9 @@ import (
 	"google.golang.org/genproto/googleapis/api/monitoredres"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3"
-	timestamp "github.com/golang/protobuf/ptypes/timestamp"
+	//timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
-	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
+	//monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
 )
 
@@ -23,13 +23,17 @@ type GcpMonitor struct {
 	projectID string
 }
 
-func NewGcpMonitor(db *sql.DB) *GcpMonitor {
-	(&GcpMonitor{
+func NewGcpMonitor(db *sql.DB, gcpProjectID string) *GcpMonitor {
+	if err := (&GcpMonitor{
 		db: db,
-	}).writeTimeSeriesValue()
+		projectID: gcpProjectID,
+	}).writeTimeSeriesValue(); err != nil {
+		log.Fatal(err)
+	}
 
 	return &GcpMonitor{
 		db: db,
+		projectID: gcpProjectID,
 	}
 }
 

@@ -11,8 +11,14 @@ type PulseHandler interface {
 	HandlePulse(recordedAt time.Time) error
 }
 
-func HandlePulses(pulse chan time.Time, wg *sync.WaitGroup, db *sql.DB) {
+func HandlePulses(
+	pulse chan time.Time,
+	wg *sync.WaitGroup,
+	db *sql.DB,
+	gcpProjectID string,
+) {
 	handlers := []PulseHandler{
+		NewGcpMonitor(db, gcpProjectID),
 		NewPulseRecorder(db),
 		NewPrometheusRecorder(),
 	}

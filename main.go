@@ -57,7 +57,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	pulselisteners.HandlePulses(pulse, wg, db)
+	pulselisteners.HandlePulses(
+		pulse,
+		wg,
+		db,
+		os.Getenv("GCP_PROJECT_ID"),
+	)
 
 	wg.Wait()
 }
