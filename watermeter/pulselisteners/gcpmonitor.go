@@ -9,6 +9,7 @@ import (
 
 	monitoring "cloud.google.com/go/monitoring/apiv3"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"google.golang.org/genproto/googleapis/api/metric"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
 	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
 )
@@ -46,6 +47,7 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 						"environment": "STAGING",
 					},
 				},
+				MetricKind: metric.MetricDescriptor_GAUGE,
 				/*
 					Resource: &monitoredres.MonitoredResource{
 						Type: "location",
