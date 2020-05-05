@@ -18,73 +18,63 @@ import (
 type GcpMonitor struct {
 	db        *sql.DB
 	projectID string
+	recordedAtBuffer []time.Time
 }
 
 func NewGcpMonitor(db *sql.DB, gcpProjectID string) *GcpMonitor {
 	return &GcpMonitor{
 		db:        db,
 		projectID: gcpProjectID,
+		recordedAtBuffer: []time.Time{},
 	}
 }
 
 func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
+	g.recordedAtBuffer = append(g.recordedAtBuffer, recordedAt)
+	if len(g.recordedAtBuffer) < 4 {
+		return nil
+	}
+
 	ctx := context.Background()
 	c, err := monitoring.NewMetricClient(ctx)
 	if err != nil {
 		return err
 	}
 
-	recordedAtTimestamp := &timestamp.Timestamp{
-		Seconds: recordedAt.Unix(),
-	}
+	startTime := &timestamp.Timestamp{Seconds: g.recordedAtBuffer[0].Unix()}
+	endTime := &timestamp.Timestamp{Seconds: g.recordedAtBuffer[len(g.recordedAtBuffer) - 1].Unix()}
 
 	req := &monitoringpb.CreateTimeSeriesRequest{
 		Name: "projects/" + g.projectID,
 		TimeSeries: []*monitoringpb.TimeSeries{
 			{
 				Metric: &metricpb.Metric{
-					Type: "custom.googleapis.com/custom_measurement",
-					//Type: "github.com/anthonywittig/watermeter/flow",
+					Type: "custom.googleapis.com/test2",
 					Labels: map[string]string{
 						"environment": "STAGING",
 					},
 				},
-				MetricKind: metric.MetricDescriptor_GAUGE,
+				MetricKind: metric.MetricDescriptor_CUMULATIVE,
 				Resource: &monitoredres.MonitoredResource{
-					Type: "gce_instance",
+					Type: "global",
 					Labels: map[string]string{
-						"instance_id": "test-instance",
-						"zone":        "us-central1-f",
+						"project_id": g.projectID,
 					},
 				},
-				/*
-					Resource: &monitoredres.MonitoredResource{
-						Type: "location",
-						Labels: map[string]string{
-							"name": "home",
-						},
-					},
-				*/
 				Points: []*monitoringpb.Point{
-					{
+					&monitoringpb.Point{
 						Interval: &monitoringpb.TimeInterval{
-							StartTime: recordedAtTimestamp,
-							EndTime:   recordedAtTimestamp,
+							StartTime: startTime,
+							EndTime:   endTime,
 						},
 						Value: &monitoringpb.TypedValue{
-							Value: &monitoringpb.TypedValue_Int64Value{
-								Int64Value: 1,
+							Value: &monitoringpb.TypedValue_DoubleValue{
+								DoubleValue: 0.1 * float64(len(g.recordedAtBuffer)),
 							},
 						},
-						/*
-							Value: &monitoringpb.TypedValue{
-								Value: &monitoringpb.TypedValue_DoubleValue{
-									DoubleValue: 0.1,
-								},
-							},
-						*/
 					},
 				},
+
 			},
 		},
 	}
@@ -94,5 +84,8 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 	if err != nil {
 		return fmt.Errorf("could not write time series value, %v ", err)
 	}
+
+	g.recordedAtBuffer = []time.Time{}
+
 	return nil
 }
