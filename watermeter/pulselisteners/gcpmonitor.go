@@ -16,22 +16,27 @@ import (
 )
 
 type GcpMonitor struct {
-	db        *sql.DB
-	projectID string
-	recordedAtBuffer []time.Time
+	db                    *sql.DB
+	projectID             string
+	earliestNotRecordedAt time.Time
+	pulsesNotRecorded     int
 }
 
 func NewGcpMonitor(db *sql.DB, gcpProjectID string) *GcpMonitor {
 	return &GcpMonitor{
 		db:        db,
 		projectID: gcpProjectID,
-		recordedAtBuffer: []time.Time{},
 	}
 }
 
 func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
-	g.recordedAtBuffer = append(g.recordedAtBuffer, recordedAt)
-	if len(g.recordedAtBuffer) < 4 {
+	if g.pulsesNotRecorded == 0 {
+		g.earliestNotRecordedAt = recordedAt
+	}
+	g.pulsesNotRecorded++
+
+	if time.Now().Sub(g.earliestNotRecordedAt).Seconds() < 30 {
+		// We're ok delaying a bit. GCP has a 10 second max reporting rate.
 		return nil
 	}
 
@@ -41,8 +46,8 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 		return err
 	}
 
-	startTime := &timestamp.Timestamp{Seconds: g.recordedAtBuffer[0].Unix()}
-	endTime := &timestamp.Timestamp{Seconds: g.recordedAtBuffer[len(g.recordedAtBuffer) - 1].Unix()}
+	startTime := &timestamp.Timestamp{Seconds: g.earliestNotRecordedAt.Unix()}
+	endTime := &timestamp.Timestamp{Seconds: recordedAt.Unix()}
 
 	req := &monitoringpb.CreateTimeSeriesRequest{
 		Name: "projects/" + g.projectID,
@@ -69,15 +74,15 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 						},
 						Value: &monitoringpb.TypedValue{
 							Value: &monitoringpb.TypedValue_DoubleValue{
-								DoubleValue: 0.1 * float64(len(g.recordedAtBuffer)),
+								DoubleValue: 0.1 * float64(g.pulsesNotRecorded),
 							},
 						},
 					},
 				},
-
 			},
 		},
 	}
+	// should kill this when we don't care anymore.
 	log.Printf("writeTimeseriesRequest: %+v\n", req)
 
 	err = c.CreateTimeSeries(ctx, req)
@@ -85,7 +90,8 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 		return fmt.Errorf("could not write time series value, %v ", err)
 	}
 
-	g.recordedAtBuffer = []time.Time{}
+	g.earliestNotRecordedAt = time.Time{}
+	g.pulsesNotRecorded = 0
 
 	return nil
 }
