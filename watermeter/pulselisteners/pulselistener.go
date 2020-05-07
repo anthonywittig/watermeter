@@ -1,6 +1,7 @@
 package pulselisteners
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"sync"
@@ -12,15 +13,21 @@ type PulseHandler interface {
 }
 
 func HandlePulses(
+	ctx context.Context,
 	pulse chan time.Time,
 	wg *sync.WaitGroup,
 	db *sql.DB,
 	gcpProjectID string,
-) {
+) error {
 	handlers := []PulseHandler{
-		NewGcpMonitor(db, gcpProjectID),
 		NewDatabaseRecorder(db),
 		NewPrometheusRecorder(),
+	}
+
+	if g, err := NewGcpMonitor(ctx, db, gcpProjectID); err != nil {
+		return err
+	} else {
+		handlers = append(handlers, g)
 	}
 
 	wg.Add(1)
@@ -34,4 +41,6 @@ func HandlePulses(
 			}
 		}
 	}()
+
+	return nil
 }

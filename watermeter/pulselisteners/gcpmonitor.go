@@ -16,17 +16,26 @@ import (
 )
 
 type GcpMonitor struct {
+	ctx                   context.Context
+	gcpClient             *monitoring.MetricClient
 	db                    *sql.DB
-	projectID             string
 	earliestNotRecordedAt time.Time
+	projectID             string
 	pulsesNotRecorded     int
 }
 
-func NewGcpMonitor(db *sql.DB, gcpProjectID string) *GcpMonitor {
-	return &GcpMonitor{
-		db:        db,
-		projectID: gcpProjectID,
+func NewGcpMonitor(ctx context.Context, db *sql.DB, gcpProjectID string) (*GcpMonitor, error) {
+	gcpClient, err := monitoring.NewMetricClient(ctx)
+	if err != nil {
+		return nil, err
 	}
+
+	return &GcpMonitor{
+		ctx:       ctx,
+		db:        db,
+		gcpClient: gcpClient,
+		projectID: gcpProjectID,
+	}, nil
 }
 
 func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
@@ -38,12 +47,6 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 	if time.Now().Sub(g.earliestNotRecordedAt).Seconds() < 30 {
 		// We're ok delaying a bit. GCP has a 10 second max reporting rate.
 		return nil
-	}
-
-	ctx := context.Background()
-	c, err := monitoring.NewMetricClient(ctx)
-	if err != nil {
-		return err
 	}
 
 	startTime := &timestamp.Timestamp{Seconds: g.earliestNotRecordedAt.Unix()}
@@ -85,7 +88,7 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 	// should kill this when we don't care anymore.
 	log.Printf("writeTimeseriesRequest: %+v\n", req)
 
-	err = c.CreateTimeSeries(ctx, req)
+	err := g.gcpClient.CreateTimeSeries(g.ctx, req)
 	if err != nil {
 		return fmt.Errorf("could not write time series value, %v ", err)
 	}

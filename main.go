@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/anthonywittig/watermeter/watermeter"
 	"github.com/anthonywittig/watermeter/watermeter/pulselisteners"
@@ -36,6 +39,9 @@ func main() {
 		}
 	}
 
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	go cancelContextOnInterrupt(ctx, cancelCtx)
+
 	db, err := sql.Open("pgx", os.Getenv("DATABASE_CONNECTION"))
 	if err != nil {
 		log.Fatal(err)
@@ -52,17 +58,20 @@ func main() {
 
 	wg := &sync.WaitGroup{}
 
-	pulse, err := watermeter.StartHardware(wg)
+	pulse, err := watermeter.StartHardware(ctx, wg)
 	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
 
-	pulselisteners.HandlePulses(
+	if err := pulselisteners.HandlePulses(
+		ctx,
 		pulse,
 		wg,
 		db,
 		os.Getenv("GCP_PROJECT_ID"),
-	)
+	); err != nil {
+		log.Fatal(err)
+	}
 
 	wg.Wait()
 }
@@ -77,5 +86,17 @@ func handlePrometheus() {
 	))
 	if err := http.ListenAndServe(":8000", nil); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func cancelContextOnInterrupt(ctx context.Context, cancel context.CancelFunc) {
+	quit := make(chan os.Signal)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-quit:
+		cancel()
+	case <-ctx.Done():
+		// noop
 	}
 }

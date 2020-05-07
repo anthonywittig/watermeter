@@ -1,17 +1,15 @@
 package watermeter
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/stianeikeland/go-rpio"
 )
 
-func StartHardware(wg *sync.WaitGroup) (chan time.Time, error) {
+func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, error) {
 	// Uses BCM addresses.
 	led := rpio.Pin(17)
 	meter := rpio.Pin(18)
@@ -28,9 +26,6 @@ func StartHardware(wg *sync.WaitGroup) (chan time.Time, error) {
 	//meter.Detect(rpio.FallEdge)     // enable falling edge event detection
 	//defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
-	quit := make(chan os.Signal)
-	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
 	wmTick := time.Tick(200 * time.Millisecond)
 	pulse := make(chan time.Time, 50)
 	wg.Add(1)
@@ -41,8 +36,8 @@ func StartHardware(wg *sync.WaitGroup) (chan time.Time, error) {
 		lastState := rpio.Low
 		for {
 			select {
-			case <-quit:
-				fmt.Println("shutting down!")
+			case <-ctx.Done():
+				fmt.Println("shutting down hardware")
 				close(pulse)
 				return
 			case <-wmTick:
