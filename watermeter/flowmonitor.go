@@ -19,7 +19,7 @@ func StartFlowMonitor(ctx context.Context, wg *sync.WaitGroup, db *sql.DB) {
 		db:  db,
 	}
 
-	tick := time.Tick(30 * time.Second)
+	tick := time.Tick(5 * time.Minute)
 
 	wg.Add(1)
 	go func() {
@@ -39,7 +39,7 @@ func StartFlowMonitor(ctx context.Context, wg *sync.WaitGroup, db *sql.DB) {
 
 func (fm *flowMonitor) monitorAndAlarm() error {
 	// Do some queries and alarm!
-	row := fm.db.QueryRowContext(fm.ctx, `select count(*) from meter where meter.recordedAt >= now() - interval '5' minute`)
+	row := fm.db.QueryRowContext(fm.ctx, `select count(*) from meter where recorded_at >= (select now() at time zone 'UTC') - interval '5' minute`)
 
 	var metricCount int
 	if err := row.Scan(&metricCount); err != nil {
@@ -51,13 +51,3 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 
 	return nil
 }
-
-/*
-func (d *DatabaseRecorder) HandlePulse(recordedAt time.Time) error {
-	if _, err := d.db.Exec("insert into meter (recorded_at) values ($1)", recordedAt); err != nil {
-		log.Printf("error inserting into db, continuing. %s\n", err.Error())
-		return err
-	}
-	return nil
-}
-*/
