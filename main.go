@@ -73,6 +73,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	watermeter.StartFlowMonitor(ctx, wg, db)
+
 	wg.Wait()
 }
 
