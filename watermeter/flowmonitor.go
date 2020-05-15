@@ -3,6 +3,7 @@ package watermeter
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -26,7 +27,7 @@ func StartFlowMonitor(
 		texter: texter,
 	}
 
-	tick := time.Tick(1 * time.Minute)
+	tick := time.Tick(5 * time.Minute)
 
 	wg.Add(1)
 	go func() {
@@ -54,7 +55,7 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 	}
 
 	gallons := float64(metricCount) * 0.1
-	if gallons > 1 {
+	if gallons > 10 {
 		return fm.sendHighWaterText(gallons)
 	}
 
@@ -63,5 +64,5 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 
 func (fm *flowMonitor) sendHighWaterText(gallons float64) error {
 	log.Printf("--- sendHighWaterText --- %g\n", gallons)
-	return fm.texter.SendMessage("The water is running full blast!")
+	return fm.texter.SendMessage(fmt.Sprintf("The water is running full blast! %g gallons in 5 minutes.", gallons))
 }
