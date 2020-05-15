@@ -73,7 +73,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	watermeter.StartFlowMonitor(ctx, wg, db)
+	texter := &watermeter.Texter{
+		Account:              os.Getenv("TWILIO_ACCOUNT"),
+		SID:                  os.Getenv("TWILIO_SID"),
+		Secret:               os.Getenv("TWILIO_SECRET"),
+		AccountPhoneNumber:   os.Getenv("TWILIO_ACCOUNT_PHONE_NUMBER"),
+		RecipientPhoneNumber: os.Getenv("TWILIO_RECIPIENT_PHONE_NUMBER"),
+	}
+
+	watermeter.StartFlowMonitor(ctx, wg, db, texter)
 
 	wg.Wait()
 }

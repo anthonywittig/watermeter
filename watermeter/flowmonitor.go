@@ -9,17 +9,24 @@ import (
 )
 
 type flowMonitor struct {
-	ctx context.Context
-	db  *sql.DB
+	ctx    context.Context
+	db     *sql.DB
+	texter *Texter
 }
 
-func StartFlowMonitor(ctx context.Context, wg *sync.WaitGroup, db *sql.DB) {
+func StartFlowMonitor(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	db *sql.DB,
+	texter *Texter,
+) {
 	fm := flowMonitor{
-		ctx: ctx,
-		db:  db,
+		ctx:    ctx,
+		db:     db,
+		texter: texter,
 	}
 
-	tick := time.Tick(5 * time.Minute)
+	tick := time.Tick(1 * time.Minute)
 
 	wg.Add(1)
 	go func() {
@@ -47,7 +54,14 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 	}
 
 	gallons := float64(metricCount) * 0.1
-	log.Printf("--- query for alarm: %g\n", gallons)
+	if gallons > 1 {
+		return fm.sendHighWaterText(gallons)
+	}
 
 	return nil
+}
+
+func (fm *flowMonitor) sendHighWaterText(gallons float64) error {
+	log.Printf("--- sendHighWaterText --- %g\n", gallons)
+	return fm.texter.SendMessage("The water is running full blast!")
 }

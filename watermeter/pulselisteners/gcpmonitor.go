@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"time"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3"
@@ -85,8 +84,6 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 			},
 		},
 	}
-	// should kill this when we don't care anymore.
-	log.Printf("writeTimeseriesRequest: %+v\n", req)
 
 	err := g.gcpClient.CreateTimeSeries(g.ctx, req)
 	if err != nil {
