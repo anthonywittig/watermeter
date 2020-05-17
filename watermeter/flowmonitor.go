@@ -55,7 +55,7 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 	}
 
 	gallons := float64(metricCount) * 0.1
-	if gallons > 10 {
+	if gallons > 13 {
 		return fm.sendHighWaterText(gallons)
 	}
 
@@ -63,6 +63,6 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 }
 
 func (fm *flowMonitor) sendHighWaterText(gallons float64) error {
-	log.Printf("--- sendHighWaterText --- %g\n", gallons)
-	return fm.texter.SendMessage(fmt.Sprintf("The water is running full blast! %g gallons in 5 minutes.", gallons))
+	log.Printf("--- sendHighWaterText --- %.2f\n", gallons)
+	return fm.texter.SendMessage(fmt.Sprintf("The water is running full blast! %.2f gallons in 5 minutes.", gallons))
 }
