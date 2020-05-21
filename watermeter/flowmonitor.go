@@ -55,7 +55,7 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 	}
 
 	gallons := float64(metricCount) * 0.1
-	if gallons > 13 {
+	if gallons > 20 {
 		return fm.sendHighWaterText(gallons)
 	}
 
