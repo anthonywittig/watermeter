@@ -27,12 +27,17 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 	//meter.Detect(rpio.FallEdge)     // enable falling edge event detection
 	//defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
+	fmt.Println("setting up valve")
 	valveOpen.Output()
+	fmt.Println("setting valve to low")
 	valveOpen.Low()
 	time.Sleep(10 * time.Second)
+	fmt.Println("setting valve to high")
 	valveOpen.High()
 	time.Sleep(10 * time.Second)
+	fmt.Println("setting valve to low")
 	valveOpen.Low()
+	fmt.Println("past setting valve to low")
 
 	wmTick := time.NewTicker(200 * time.Millisecond).C
 	pulse := make(chan time.Time, 50)
