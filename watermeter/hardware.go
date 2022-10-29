@@ -13,6 +13,7 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 	// Uses BCM addresses.
 	led := rpio.Pin(17)
 	meter := rpio.Pin(18)
+	valveOpen := rpio.Pin(19)
 
 	if err := rpio.Open(); err != nil {
 		return nil, err
@@ -26,7 +27,14 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 	//meter.Detect(rpio.FallEdge)     // enable falling edge event detection
 	//defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
-	wmTick := time.Tick(200 * time.Millisecond)
+	valveOpen.Output()
+	valveOpen.Low()
+	time.Sleep(10 * time.Second)
+	valveOpen.High()
+	time.Sleep(10 * time.Second)
+	valveOpen.Low()
+
+	wmTick := time.NewTicker(200 * time.Millisecond).C
 	pulse := make(chan time.Time, 50)
 	wg.Add(1)
 
