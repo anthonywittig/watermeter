@@ -12,3 +12,6 @@ startService:
 stopService:
 	echo "Stopping service"
 	sudo systemctl stop watermeter
+
+deploy-lambdas:
+	./bin/deploy-lambda/run.sh watermeter inbound-text
