@@ -178,6 +178,21 @@ func (l *lambdaDeployer) createRoleIfNotExists(ctx context.Context) (*string, er
 }
 
 func (l *lambdaDeployer) updateCode(ctx context.Context) error {
+	envFilePath := fmt.Sprintf("%s/lambdas/cmd/%s/.env.json", l.projectDir, l.name)
+	content, err := ioutil.ReadFile(envFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to read env file, %v", err)
+	}
+
+	if _, err := l.svc.UpdateFunctionConfiguration(ctx, &lambda.UpdateFunctionConfigurationInput{
+		FunctionName: &l.name,
+		Environment: &types.Environment{Variables: map[string]string{
+			"ENV": string(content),
+		}},
+	}); err != nil {
+		return fmt.Errorf("unable to update config, %v", err)
+	}
+
 	zipContents, err := l.getZip()
 	if err != nil {
 		return fmt.Errorf("unable to build and get zip, %v", err)
