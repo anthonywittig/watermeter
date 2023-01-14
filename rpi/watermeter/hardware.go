@@ -34,12 +34,18 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 	fmt.Println("setting all valve inputs to high (default off)")
 	valveOpen.High()
 	valveClose.High()
-	fmt.Println("setting open valve to low")
+
+	fmt.Println("setting close valve to low (on)")
+	valveClose.Low()
+	time.Sleep(10 * time.Second)
+	fmt.Println("setting close valve to high (off)")
+	valveClose.High()
+
+	fmt.Println("setting open valve to low (on)")
 	valveOpen.Low()
 	time.Sleep(10 * time.Second)
-	fmt.Println("setting open valve to high")
+	fmt.Println("setting open valve to high (off)")
 	valveOpen.High()
-	time.Sleep(10 * time.Second)
 
 	/*
 		fmt.Println("setting valve to low")
