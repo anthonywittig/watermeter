@@ -14,4 +14,4 @@ stopService:
 	sudo systemctl stop watermeter
 
 deploy-lambdas:
-	./bin/deploy-lambda/run.sh watermeter inbound-text
+	./bin/deploy-lambda/run.sh watermeter-deployer-role inbound-text $(token)

@@ -10,15 +10,18 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 type lambdaDeployer struct {
 	cfg        aws.Config
 	name       string
 	projectDir string
+	sqs        *sqs.Client
 	svc        *lambda.Client
 }
 
@@ -26,6 +29,7 @@ func main() {
 	ctx := context.Background()
 	profile := os.Args[1]
 	name := os.Args[2]
+	token := os.Args[3]
 
 	if profile == "" {
 		log.Fatal("profile must be set")
@@ -41,17 +45,24 @@ func main() {
 	cfg, err := config.LoadDefaultConfig(
 		ctx,
 		config.WithSharedConfigProfile(profile),
+		config.WithAssumeRoleCredentialOptions(func(o *stscreds.AssumeRoleOptions) {
+			o.TokenProvider = func() (string, error) {
+				return token, nil
+			}
+		}),
 	)
 	if err != nil {
 		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
 	svc := lambda.NewFromConfig(cfg)
+	sqs := sqs.NewFromConfig(cfg)
 
 	l := lambdaDeployer{
 		cfg:        cfg,
 		name:       name,
 		projectDir: projectDir,
+		sqs:        sqs,
 		svc:        svc,
 	}
 
@@ -61,6 +72,10 @@ func main() {
 
 	if err := l.updateCode(ctx); err != nil {
 		log.Fatalf("unable to update code, %v", err)
+	}
+
+	if err := l.configureSQS(ctx); err != nil {
+		log.Fatalf("unable to configure sqs, %v", err)
 	}
 }
 
@@ -206,5 +221,19 @@ func (l *lambdaDeployer) updateCode(ctx context.Context) error {
 		return fmt.Errorf("unable to update code, %v", err)
 	}
 
+	return nil
+}
+
+func (l *lambdaDeployer) configureSQS(ctx context.Context) error {
+	if _, err := l.sqs.CreateQueue(
+		ctx,
+		&sqs.CreateQueueInput{
+			QueueName:  aws.String("to-rpi"),
+			Attributes: map[string]string{},
+			Tags:       map[string]string{},
+		},
+	); err != nil {
+		return fmt.Errorf("unable to create queue, %v", err)
+	}
 	return nil
 }

@@ -14,6 +14,7 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 	led := rpio.Pin(17)
 	meter := rpio.Pin(18)
 	valveOpen := rpio.Pin(19)
+	valveClose := rpio.Pin(26)
 
 	if err := rpio.Open(); err != nil {
 		return nil, err
@@ -29,15 +30,29 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 
 	fmt.Println("setting up valve")
 	valveOpen.Output()
-	fmt.Println("setting valve to low")
+	valveClose.Output()
+	fmt.Println("setting all valve inputs to high (default off)")
+	valveOpen.High()
+	valveClose.High()
+	fmt.Println("setting open valve to low")
 	valveOpen.Low()
 	time.Sleep(10 * time.Second)
-	fmt.Println("setting valve to high")
+	fmt.Println("setting open valve to high")
 	valveOpen.High()
 	time.Sleep(10 * time.Second)
-	fmt.Println("setting valve to low")
-	valveOpen.Low()
-	fmt.Println("past setting valve to low")
+
+	/*
+		fmt.Println("setting valve to low")
+		valveOpen.Low()
+		time.Sleep(10 * time.Second)
+		fmt.Println("setting valve to high")
+		valveOpen.High()
+		time.Sleep(10 * time.Second)
+		fmt.Println("setting valve to low")
+		valveOpen.Low()
+	*/
+
+	fmt.Println("after initial valve settings")
 
 	wmTick := time.NewTicker(200 * time.Millisecond).C
 	pulse := make(chan time.Time, 50)

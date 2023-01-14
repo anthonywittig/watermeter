@@ -6,7 +6,20 @@ scriptDir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd $scriptDir
 
 profile="$1"
+if [[ -z "$profile" ]]; then
+    echo "Missing profile."
+    exit 1
+fi
 lambdaName="$2"
+if [[ -z "$lambdaName" ]]; then
+    echo "Missing lambda name."
+    exit 1
+fi
+token="$3"
+if [[ -z "$token" ]]; then
+    echo "Missing token."
+    exit 1
+fi
 lambdaDir=$(realpath "../../lambdas/cmd/$lambdaName")
 buildDir="../../build/${lambdaName}"
 
@@ -20,13 +33,8 @@ mkdir -p $buildDir
 rm -r $buildDir
 mkdir $buildDir
 buildDirAbs=$(realpath "${buildDir}")
-# Might need to copy some config here.
-#if test -f "${lambda}/.env"; then
-#    cp ${lambda}/.env $buildDir
-#fi
-
 (cd $lambdaDir && GOOS=linux GOARCH=amd64 go build -o $buildDirAbs main.go)
-(cd $buildDirAbs && zip -r function.zip *) # Might need to include .env at some point.
+(cd $buildDirAbs && zip -r function.zip *)
 
 go build -o main
-./main $profile $lambdaName
+./main $profile $lambdaName $token
