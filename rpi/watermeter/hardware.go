@@ -6,10 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthonywittig/watermeter/watermeter/iot"
 	"github.com/stianeikeland/go-rpio"
 )
 
-func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, error) {
+func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, *iot.Valve, error) {
 	// Uses BCM addresses.
 	led := rpio.Pin(17)
 	meter := rpio.Pin(18)
@@ -17,46 +18,18 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 	valveClose := rpio.Pin(26)
 
 	if err := rpio.Open(); err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("error opening rpio: %w", err)
 	}
 
-	// Set led to output mode
 	led.Output()
 
 	meter.Input()
 	meter.PullUp()
-	//meter.Detect(rpio.FallEdge)     // enable falling edge event detection
-	//defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
-	fmt.Println("setting up valve")
-	valveOpen.Output()
-	valveClose.Output()
-	fmt.Println("setting all valve inputs to high (default off)")
-	valveOpen.High()
-	valveClose.High()
-
-	fmt.Println("setting close valve to low (on)")
-	valveClose.Low()
-	time.Sleep(10 * time.Second)
-	fmt.Println("setting close valve to high (off)")
-	valveClose.High()
-
-	fmt.Println("setting open valve to low (on)")
-	valveOpen.Low()
-	time.Sleep(10 * time.Second)
-	fmt.Println("setting open valve to high (off)")
-	valveOpen.High()
-
-	/*
-		fmt.Println("setting valve to low")
-		valveOpen.Low()
-		time.Sleep(10 * time.Second)
-		fmt.Println("setting valve to high")
-		valveOpen.High()
-		time.Sleep(10 * time.Second)
-		fmt.Println("setting valve to low")
-		valveOpen.Low()
-	*/
+	valve, err := iot.NewValve(valveOpen, valveClose)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error setting up valve: %w", err)
+	}
 
 	fmt.Println("after initial valve settings")
 
@@ -88,5 +61,5 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 		}
 	}()
 
-	return pulse, nil
+	return pulse, valve, nil
 }

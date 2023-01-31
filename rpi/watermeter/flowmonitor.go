@@ -7,12 +7,15 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/anthonywittig/watermeter/watermeter/iot"
 )
 
 type flowMonitor struct {
 	ctx    context.Context
 	db     *sql.DB
 	texter *Texter
+	valve  *iot.Valve
 }
 
 func StartFlowMonitor(
@@ -20,11 +23,13 @@ func StartFlowMonitor(
 	wg *sync.WaitGroup,
 	db *sql.DB,
 	texter *Texter,
+	valve *iot.Valve,
 ) {
 	fm := flowMonitor{
 		ctx:    ctx,
 		db:     db,
 		texter: texter,
+		valve:  valve,
 	}
 
 	tick := time.Tick(5 * time.Minute)
@@ -56,7 +61,14 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 
 	gallons := float64(metricCount) * 0.1
 	if gallons > 20 {
-		return fm.sendHighWaterText(gallons)
+		if err := fm.valve.Close(); err != nil {
+			// We probably still want to try to send the text... we'll just ignore any errors it has.
+			fm.sendHighWaterText(gallons)
+			return fmt.Errorf("error closing valve: %w", err)
+		}
+		if err := fm.sendHighWaterText(gallons); err != nil {
+			return fmt.Errorf("error sending high water text: %w", err)
+		}
 	}
 
 	return nil

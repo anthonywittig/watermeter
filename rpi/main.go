@@ -58,7 +58,7 @@ func main() {
 
 	wg := &sync.WaitGroup{}
 
-	pulse, err := watermeter.StartHardware(ctx, wg)
+	pulse, valve, err := watermeter.StartHardware(ctx, wg)
 	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func main() {
 		RecipientPhoneNumber: os.Getenv("TWILIO_RECIPIENT_PHONE_NUMBER"),
 	}
 
-	watermeter.StartFlowMonitor(ctx, wg, db, texter)
+	watermeter.StartFlowMonitor(ctx, wg, db, texter, valve)
 
 	wg.Wait()
 }
