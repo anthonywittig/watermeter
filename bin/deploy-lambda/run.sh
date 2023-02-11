@@ -17,7 +17,7 @@ if [[ -z "$lambdaName" ]]; then
 fi
 token="$3"
 if [[ -z "$token" ]]; then
-    echo "Missing token."
+    echo "Missing MFA token (add 'token={MFA}' parameter)."
     exit 1
 fi
 lambdaDir=$(realpath "../../lambdas/cmd/$lambdaName")

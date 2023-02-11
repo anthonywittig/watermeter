@@ -228,9 +228,11 @@ func (l *lambdaDeployer) configureSQS(ctx context.Context) error {
 	if _, err := l.sqs.CreateQueue(
 		ctx,
 		&sqs.CreateQueueInput{
-			QueueName:  aws.String("to-rpi"),
-			Attributes: map[string]string{},
-			Tags:       map[string]string{},
+			QueueName: aws.String("watermeter-rpi.fifo"),
+			Attributes: map[string]string{
+				"FifoQueue": "true",
+			},
+			Tags: map[string]string{},
 		},
 	); err != nil {
 		return fmt.Errorf("unable to create queue, %v", err)

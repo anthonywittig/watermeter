@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"lambdas/cmd/inbound-text/sqs"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -16,6 +18,8 @@ import (
 
 type Env struct {
 	AllowedPhoneNumbers []string `json:"allowedPhoneNumbers"`
+	AWSAccount          string   `json:"awsAccount"`
+	AWSRegion           string   `json:"awsRegion"`
 	TwilioAccountNumber string   `json:"twilioAccountNumber"`
 	TwilioAuthToken     string   `json:"twilioAuthToken"`
 	TwilioSID           string   `json:"twilioSid"`
@@ -28,7 +32,7 @@ func main() {
 
 func handler(ctx context.Context, request events.LambdaFunctionURLRequest) (events.LambdaFunctionURLResponse, error) {
 	if request.RequestContext.HTTP.Method == "GET" {
-		if err := get(request); err != nil {
+		if err := get(ctx, request); err != nil {
 			fmt.Printf("error processing GET: %s\n", err)
 			return events.LambdaFunctionURLResponse{
 				StatusCode: 500,
@@ -48,7 +52,7 @@ func handler(ctx context.Context, request events.LambdaFunctionURLRequest) (even
 	return events.LambdaFunctionURLResponse{Body: "Unexpected", StatusCode: 400}, nil
 }
 
-func get(request events.LambdaFunctionURLRequest) error {
+func get(ctx context.Context, request events.LambdaFunctionURLRequest) error {
 	b, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("error marshaling request: %w", err)
@@ -95,32 +99,45 @@ func get(request events.LambdaFunctionURLRequest) error {
 		return nil
 	}
 
-	/*
-		message, ok := request.QueryStringParameters["Body"]
-		if !ok {
-			return fmt.Errorf("missing Body query parameter")
-		}
-		fmt.Printf("looks good: %s\n", message)
-	*/
-
 	to, ok := request.QueryStringParameters["To"]
 	if !ok {
 		return fmt.Errorf("missing To parameter")
 	}
 
+	message, ok := request.QueryStringParameters["Body"]
+	if !ok {
+		return fmt.Errorf("missing Body query parameter")
+	}
+	fmt.Printf("looks good: %s\n", message)
+
+	replyMessage := ""
+	intMessage, err := strconv.Atoi(message)
+	if err != nil {
+		replyMessage = "doesn't look like you sent a number, try a 0-10"
+	} else {
+		sqsService, err := sqs.NewSQSService(ctx, env.AWSAccount, env.AWSRegion)
+		if err != nil {
+			return fmt.Errorf("error creating sqs service: %w", err)
+		}
+		if err := sqsService.SendMessage(ctx, intMessage); err != nil {
+			return fmt.Errorf("error sending message: %w", err)
+		}
+		replyMessage = fmt.Sprintf("passed \"%d\" on to the queue", intMessage)
+	}
+
 	// We swap the to/from since we're sending a reply.
-	if err := sendSMS(env, from, to); err != nil {
+	if err := sendSMS(env, from, to, replyMessage); err != nil {
 		return fmt.Errorf("error sending sms: %w", err)
 	}
 
 	return nil
 }
 
-func sendSMS(env Env, to string, from string) error {
+func sendSMS(env Env, to string, from string, message string) error {
 	msgData := url.Values{}
 	msgData.Set("To", to)
 	msgData.Set("From", from)
-	msgData.Set("Body", "lambda got it!")
+	msgData.Set("Body", message)
 	msgDataReader := *strings.NewReader(msgData.Encode())
 
 	client := &http.Client{}

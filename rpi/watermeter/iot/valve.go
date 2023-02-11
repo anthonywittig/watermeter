@@ -2,6 +2,7 @@ package iot
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/stianeikeland/go-rpio"
@@ -10,6 +11,7 @@ import (
 type Valve struct {
 	openRelay  rpio.Pin
 	closeRelay rpio.Pin
+	lock       sync.Mutex
 }
 
 func NewValve(openRelay rpio.Pin, closeRelay rpio.Pin) (*Valve, error) {
@@ -23,6 +25,7 @@ func NewValve(openRelay rpio.Pin, closeRelay rpio.Pin) (*Valve, error) {
 	v := &Valve{
 		closeRelay: closeRelay,
 		openRelay:  openRelay,
+		lock:       sync.Mutex{},
 	}
 
 	if err := v.Close(); err != nil {
@@ -36,6 +39,9 @@ func NewValve(openRelay rpio.Pin, closeRelay rpio.Pin) (*Valve, error) {
 }
 
 func (v *Valve) Close() error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	fmt.Println("setting close valve to low (on)")
 	v.closeRelay.Low()
 	time.Sleep(10 * time.Second)
@@ -46,6 +52,9 @@ func (v *Valve) Close() error {
 }
 
 func (v *Valve) Open() error {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
 	fmt.Println("setting open valve to low (on)")
 	v.openRelay.Low()
 	time.Sleep(10 * time.Second)

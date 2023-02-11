@@ -7,7 +7,7 @@ build:
 
 startService:
 	echo "Starting service"
-	sudo systemctl start watermeter
+	sudo systemctl restart watermeter
 
 stopService:
 	echo "Stopping service"
