@@ -228,7 +228,7 @@ func (l *lambdaDeployer) configureSQS(ctx context.Context) error {
 	if _, err := l.sqs.CreateQueue(
 		ctx,
 		&sqs.CreateQueueInput{
-			QueueName: aws.String("watermeter-rpi.fifo"),
+			QueueName: aws.String("water-meter-rpi.fifo"),
 			Attributes: map[string]string{
 				"FifoQueue": "true",
 			},

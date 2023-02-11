@@ -41,7 +41,7 @@ func NewSQSService(
 
 func (s *SQSService) SendMessage(ctx context.Context, level int) error {
 	queueURL := fmt.Sprintf(
-		"https://sqs.%s.amazonaws.com/%s/watermeter-rpi.fifo",
+		"https://sqs.%s.amazonaws.com/%s/water-meter-rpi.fifo",
 		s.awsRegion,
 		s.awsAccount,
 	)

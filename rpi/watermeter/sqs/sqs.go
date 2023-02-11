@@ -32,7 +32,7 @@ func NewSQSService(ctx context.Context) (*SQSService, error) {
 }
 
 func (s *SQSService) GetMessages(ctx context.Context) (*ValveChangeRequested, error) {
-	queueName := "watermeter-rpi.fifo"
+	queueName := "water-meter-rpi.fifo"
 
 	if !strings.HasSuffix(queueName, ".fifo") {
 		return nil, fmt.Errorf("queue name must end in .fifo")
