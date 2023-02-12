@@ -5,6 +5,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+User=pi
+Group=pi
 Restart=always
 RestartSec=10
 ExecStart=/home/pi/projects/watermeter/bin/watermeter
