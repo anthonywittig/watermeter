@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthonywittig/watermeter/watermeter"
 	"github.com/anthonywittig/watermeter/watermeter/pulselisteners"
+	"github.com/anthonywittig/watermeter/watermeter/sqs"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus"
@@ -51,6 +52,11 @@ func main() {
 	}
 	defer db.Close()
 
+	sqsService, err := sqs.NewSQSService(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Need to shut this down nicely?
 	go handlePrometheus()
 
@@ -58,8 +64,13 @@ func main() {
 
 	wg := &sync.WaitGroup{}
 
-	pulse, err := watermeter.StartHardware(ctx, wg)
+	pulse, valve, err := watermeter.StartHardware(ctx, wg)
 	if err := db.Ping(); err != nil {
+		log.Fatal(err)
+	}
+
+	err = watermeter.StartRemoteControl(ctx, wg, sqsService, valve)
+	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -81,7 +92,7 @@ func main() {
 		RecipientPhoneNumber: os.Getenv("TWILIO_RECIPIENT_PHONE_NUMBER"),
 	}
 
-	watermeter.StartFlowMonitor(ctx, wg, db, texter)
+	watermeter.StartFlowMonitor(ctx, wg, db, texter, valve)
 
 	wg.Wait()
 }

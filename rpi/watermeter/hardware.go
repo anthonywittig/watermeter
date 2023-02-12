@@ -6,27 +6,34 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthonywittig/watermeter/watermeter/iot"
 	"github.com/stianeikeland/go-rpio"
 )
 
-func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, error) {
+func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, *iot.Valve, error) {
 	// Uses BCM addresses.
 	led := rpio.Pin(17)
 	meter := rpio.Pin(18)
+	valveOpen := rpio.Pin(19)
+	valveClose := rpio.Pin(26)
 
 	if err := rpio.Open(); err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("error opening rpio: %w", err)
 	}
 
-	// Set led to output mode
 	led.Output()
 
 	meter.Input()
 	meter.PullUp()
-	//meter.Detect(rpio.FallEdge)     // enable falling edge event detection
-	//defer meter.Detect(rpio.NoEdge) // disable edge event detection
 
-	wmTick := time.Tick(200 * time.Millisecond)
+	valve, err := iot.NewValve(valveOpen, valveClose)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error setting up valve: %w", err)
+	}
+
+	fmt.Println("after initial valve settings")
+
+	wmTick := time.NewTicker(200 * time.Millisecond).C
 	pulse := make(chan time.Time, 50)
 	wg.Add(1)
 
@@ -54,5 +61,5 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, err
 		}
 	}()
 
-	return pulse, nil
+	return pulse, valve, nil
 }

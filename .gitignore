@@ -1,3 +1,2 @@
-bin/
-*.env
-*.gcp.credentials.json
+.env.json
+build/

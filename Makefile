@@ -7,8 +7,11 @@ build:
 
 startService:
 	echo "Starting service"
-	sudo systemctl start watermeter
+	sudo systemctl restart watermeter
 
 stopService:
 	echo "Stopping service"
 	sudo systemctl stop watermeter
+
+deploy-lambdas:
+	./bin/deploy-lambda/run.sh watermeter-deployer-role inbound-text $(token)
