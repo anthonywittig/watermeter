@@ -1,8 +1,10 @@
 # PWA migration plan: replacing Twilio with a Firebase PWA
 
-> Status: planning. No code written yet. Decisions locked: **all-in on
-> Firebase/GCP** (retire Twilio *and* AWS) with a **parallel rollout** (keep
-> Twilio live until the family is onboarded).
+> Status: in progress (Phase 0). Decisions locked: **all-in on Firebase/GCP**
+> (retire Twilio *and* AWS) on a **dedicated new project** (`watermeter-501022`,
+> *not* the monitoring project — monitoring downtime during the transition is
+> acceptable), with a **parallel rollout** of the Twilio/valve path (keep Twilio
+> live until the family is onboarded).
 
 ## Goal
 
@@ -17,18 +19,20 @@ family can:
 
 ## Why Firebase
 
-The rpi already authenticates to GCP (`gcpmonitor.go` uses `GCP_PROJECT_ID` and a
-service-account credential), and Firebase layers onto that **existing** GCP
-project. Google sign-in, push, and the command channel can all live in Firebase,
-so we can drop **both** Twilio and AWS (SQS + the `inbound-text` Lambda) and run
-on a single cloud with one credential set on the Pi.
+Google sign-in, push, and the command channel can all live in Firebase, so we can
+drop **both** Twilio and AWS (SQS + the `inbound-text` Lambda) and run the
+family-facing system on a single cloud. We're using a **dedicated new project**
+(`watermeter-501022`) rather than the existing monitoring project, so the rpi will
+need a **new service-account credential** scoped to it (the current
+`GOOGLE_APPLICATION_CREDENTIALS` is for the monitoring project). Monitoring may go
+dark during the transition — an accepted tradeoff.
 
 Properties that make this a good fit:
 
 - **No inbound ports on the rpi.** A Firestore listener is an *outbound*
   connection, like the current SQS poll — the home network/NAT is untouched.
-- **The rpi can send push directly.** It already has a GCP service account, so it
-  can call FCM itself on shutoff; no extra backend hop.
+- **The rpi can send push directly.** With a service-account credential for the
+  project, it can call FCM itself on shutoff; no extra backend hop.
 - **Possibly zero backend servers.** The PWA writes commands straight to
   Firestore, with **security rules** enforcing the email allowlist.
 
@@ -65,13 +69,17 @@ Sequenced so the family-facing path (auth → control → push) works end-to-end
 before Twilio is removed, with the Pi running both command channels in parallel
 during the transition.
 
-### Phase 0 — Firebase foundations
-- Enable Firebase on the existing GCP project. Turn on: Authentication (Google
-  provider), Firestore, Cloud Messaging (FCM), Hosting.
-- Decide where the **email allowlist** lives. Canonical list stays in
-  `watermeter-config`; a deploy step renders it into the Firestore security rules
-  (or a `config/allowed` Firestore doc the rules read via `get()`).
-- Generate the web-push VAPID key (public; fine to commit).
+### Phase 0 — Firebase foundations ✅
+- Dedicated Firebase project **`watermeter-501022`** with Google Authentication
+  (consent screen published to Production), Firestore, and Cloud Messaging enabled.
+- **Email allowlist** lives in `watermeter-config`
+  (`config/firebase/allowed-emails.json`) and is rendered into `firestore.rules`
+  by `dev/render-firestore-rules.sh`. The rendered file is gitignored so the
+  family's emails never land in this public repo.
+- Web-push **VAPID** key and the public Firebase web config captured in
+  `pwa/firebase-config.js`.
+- A **service-account key** for the rpi was generated; it'll be stored in
+  `watermeter-config` and wired up in Phase 2/3.
 
 ### Phase 1 — PWA shell + Google auth
 - New `pwa/` (or `web/`) directory in this repo: `index.html`, `manifest.json`
