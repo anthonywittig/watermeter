@@ -2,9 +2,10 @@
 
 A Raspberry Pi–based water meter monitor with automatic and remote water shutoff.
 
-A reed/button-style sensor on the house water meter generates one pulse per
-0.1 gallon. A Go service on the Pi counts those pulses, records them to several
-backends, and watches for runaway flow. If too much water flows in a short
+The house water meter has a magnet on its spinning dial; a passive two-wire reed
+switch mounted next to the dial closes once per revolution, generating one pulse
+per 0.1 gallon. A Go service on the Pi counts those pulses, records them to
+several backends, and watches for runaway flow. If too much water flows in a short
 window (e.g. a burst pipe), it automatically closes a motorized valve and texts
 you. You can also open/close the valve remotely by sending a text message.
 
