@@ -97,6 +97,45 @@ which must be cloned next to this one (`../watermeter-config`).
 See the `*.example*` files in `watermeter-config` (and `rpi/.env.example` /
 `lambdas/cmd/inbound-text/.env.example.json`) for the shape of the config.
 
+## Firebase setup (one-time, manual)
+
+The PWA runs on Firebase (see [docs/pwa-migration-plan.md](docs/pwa-migration-plan.md)).
+Standing up a deployment requires a few clicks in the Firebase / Google Cloud
+consoles that can't be scripted — these create the project and its credentials.
+Do them once, then feed the resulting values into `watermeter-config`.
+
+1. **Create a Firebase project** at <https://console.firebase.google.com> →
+   *Add project*. (A Firebase project *is* a GCP project; you can also enable
+   Firebase on an existing GCP project by picking it from the dropdown.)
+2. **Register a Web app** (the `</>` icon) and copy the `firebaseConfig` object
+   into `watermeter-config/config/firebase/web-config.json` (`web` + `projectId`).
+   These are public client-side identifiers, not secrets.
+3. **Authentication** → enable the **Google** sign-in provider (set a support
+   email). Then, in the Google Cloud console → *APIs & Services → OAuth consent
+   screen* (a.k.a. "Google Auth Platform"), set the audience to **External** and
+   **Publish** the app to Production. Publishing avoids the Testing-mode gotcha
+   where users get logged out every ~7 days; access is still restricted by the
+   Firestore allowlist, not the consent screen. (Non-Workspace accounts only have
+   the External option, which is what we want anyway.)
+4. **Firestore Database** → *Create database* in **Production mode**; pick a
+   region near the deployment (permanent).
+5. **Cloud Messaging** → *Project Settings → Cloud Messaging → Web Push
+   certificates* → *Generate key pair*. Copy the public key into `vapidKey` in
+   `web-config.json`.
+6. **Service account for the rpi** → *Project Settings → Service accounts →
+   Generate new private key*. This JSON **is a secret** — store it in
+   `watermeter-config` (wired up when the rpi talks to Firestore/FCM), never in
+   this repo.
+
+Then populate `watermeter-config/config/firebase/` (see the `*.example.json`
+files there), and:
+
+```sh
+firebase login                       # once, to authenticate the CLI
+./dev/render-config.sh               # generate .firebaserc, pwa/firebase-config.js, firestore.rules
+firebase deploy --only firestore:rules
+```
+
 ## Database (poor man's migrations)
 
 ```sql
