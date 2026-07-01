@@ -72,12 +72,13 @@ during the transition.
 ### Phase 0 — Firebase foundations ✅
 - Dedicated Firebase project **`watermeter-501022`** with Google Authentication
   (consent screen published to Production), Firestore, and Cloud Messaging enabled.
-- **Email allowlist** lives in `watermeter-config`
-  (`config/firebase/allowed-emails.json`) and is rendered into `firestore.rules`
-  by `dev/render-firestore-rules.sh`. The rendered file is gitignored so the
-  family's emails never land in this public repo.
-- Web-push **VAPID** key and the public Firebase web config captured in
-  `pwa/firebase-config.js`.
+- **This repo stays deployment-agnostic:** all deployment-specific values (the
+  Firebase project ID, web config, VAPID key, and allowed emails — even the
+  publicly-embedded ones) live in `watermeter-config/config/firebase/`.
+  `dev/render-config.sh` generates the actual deployment files —`.firebaserc`,
+  `pwa/firebase-config.js`, and `firestore.rules` — which are all **gitignored**.
+- The **email allowlist** (`config/firebase/allowed-emails.json`) is injected
+  into `firestore.rules.template`'s `isAllowed()` gate.
 - A **service-account key** for the rpi was generated; it'll be stored in
   `watermeter-config` and wired up in Phase 2/3.
 

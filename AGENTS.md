@@ -52,16 +52,28 @@ the module you touch.
 - **AWS:** the rpi side uses the shared-config profile `water-meter-rpi`; the
   SQS queue is `water-meter-rpi.fifo`. The SQS message type is `ValveChangeRequested{ Level int }`.
 
-## Secrets — do NOT commit them here
+## Keep this repo deployment-agnostic
 
-Real config and secrets live in the sibling `watermeter-config` repo, not this
-one. `.gitignore` excludes `*.env`, `*.gcp.credentials.json`, `bin/`, and
-`.env.json`. Never add real Twilio/AWS/GCP credentials to this repo; update the
-`.env.example*` files to document new config keys instead.
+**No deployment-specific values belong in this repo** — not secrets, and not
+otherwise-public identifiers either (Firebase project ID, web API key, VAPID
+key, allowed emails). The goal is that someone else could fork it and deploy
+with only their own `watermeter-config`. All such values live in the sibling
+`watermeter-config` repo and are pulled in at build/deploy time:
+
+- `dev/build.sh` copies the rpi `.env` from `watermeter-config`.
+- `dev/render-config.sh` generates `.firebaserc`, `pwa/firebase-config.js`, and
+  `firestore.rules` from `watermeter-config/config/firebase/`.
+
+These generated files are **gitignored** (`.firebaserc`, `firestore.rules`,
+`pwa/firebase-config.js`, `*.env`, `.env.json`, `*.gcp.credentials.json`). If you
+find yourself typing a real project ID, key, or email into a tracked file, stop —
+it belongs in `watermeter-config`, referenced through a template/render step.
 
 ## When you change config shape
 
-If you add or rename an environment variable, update **both**:
-- the `*.env.example*` file in this repo, and
-- the corresponding real file in `watermeter-config` (the user maintains that),
-  and mention it so they can update the deployed config.
+If you add or rename a config value, update **all** of:
+- the template/consumer in this repo (e.g. `firestore.rules.template`, the render
+  script, or an `.env` reference), keeping only placeholders here;
+- the `*.example*` file that documents the shape; and
+- the real file in `watermeter-config` (the user maintains that) — mention it so
+  they can update the deployed config.

@@ -80,15 +80,22 @@ Other directories:
 
 ## Configuration
 
-Secrets and environment config are **not** stored in this repo — they live in
-the sibling [`watermeter-config`](https://github.com/anthonywittig/watermeter-config)
-repo, which must be cloned next to this one (`../watermeter-config`).
+**No deployment-specific values live in this repo** — that's deliberate, so it
+can be forked and deployed by anyone who supplies their own config. Everything
+project-specific (secrets *and* otherwise-public identifiers like the Firebase
+project ID) lives in the sibling
+[`watermeter-config`](https://github.com/anthonywittig/watermeter-config) repo,
+which must be cloned next to this one (`../watermeter-config`).
 
 - `dev/build.sh` copies `../watermeter-config/config/rpi/.env` into `bin/`.
 - The lambda's `.env.json` is supplied by `watermeter-config`'s deploy step.
+- `dev/render-config.sh` generates the Firebase deployment files —
+  `.firebaserc`, `pwa/firebase-config.js`, and `firestore.rules` — from
+  `watermeter-config/config/firebase/`. All three are **gitignored** (they're
+  generated); run it before `firebase deploy`.
 
-See `rpi/.env.example` and `lambdas/cmd/inbound-text/.env.example.json` for the
-shape of the config.
+See the `*.example*` files in `watermeter-config` (and `rpi/.env.example` /
+`lambdas/cmd/inbound-text/.env.example.json`) for the shape of the config.
 
 ## Database (poor man's migrations)
 
