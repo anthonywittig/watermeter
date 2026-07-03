@@ -1,11 +1,9 @@
-// Minimal app-shell service worker so the PWA is installable and the static
-// shell works offline. Bump CACHE when the shell assets change.
-//
-// Note: firebase-config.js and the Firebase SDK (loaded from gstatic) are not
-// pre-cached here — auth needs the network anyway, and we don't want to pin a
-// stale config. Phase 3 adds a separate firebase-messaging-sw.js for push.
+// App-shell service worker. Network-first so an online user always gets the
+// latest code (important — this app controls a water valve); the cache is only
+// an offline fallback. Bump CACHE whenever you want to guarantee old entries
+// are dropped. Phase 3 adds a separate firebase-messaging-sw.js for push.
 
-const CACHE = "watermeter-shell-v1";
+const CACHE = "watermeter-shell-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -39,16 +37,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Network-first for navigations so app updates show up; fall back to cache.
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request).catch(() => caches.match("./index.html"))
-    );
-    return;
-  }
-
-  // Cache-first for other same-origin shell assets.
+  // Network-first: fetch fresh, cache a copy for offline, fall back to cache
+  // (and to the cached shell for navigations) when the network is unavailable.
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetch(request))
+    fetch(request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, copy));
+        return response;
+      })
+      .catch(() =>
+        caches.match(request).then(
+          (cached) =>
+            cached ||
+            (request.mode === "navigate" ? caches.match("./index.html") : undefined)
+        )
+      )
   );
 });

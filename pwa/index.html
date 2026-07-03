@@ -31,7 +31,24 @@
       <!-- Signed in. -->
       <section id="signed-in" class="card" hidden>
         <p class="muted">Signed in as <span id="user-email"></span></p>
-        <p class="placeholder">Water controls are coming soon.</p>
+
+        <!-- Valve control (shown once we can read the valve state). -->
+        <div id="valve" class="valve" hidden>
+          <p class="valve__status">
+            Water is <strong id="valve-state" class="valve__state">…</strong>
+          </p>
+          <div class="valve__buttons">
+            <button id="valve-on" class="btn btn--primary">Turn water ON</button>
+            <button id="valve-off" class="btn btn--danger">Turn water OFF</button>
+          </div>
+          <p id="valve-meta" class="muted valve__meta" hidden></p>
+        </div>
+
+        <!-- Signed in, but not on the allowlist. -->
+        <p id="unauthorized" class="placeholder" hidden>
+          Your account isn’t authorized to control the water. Ask the owner to add you.
+        </p>
+
         <button id="sign-out" class="btn">Sign out</button>
       </section>
 
