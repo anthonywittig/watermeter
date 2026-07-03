@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Watermeter</title>
+    <meta name="theme-color" content="#0b6ea8" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <img class="app__logo" src="icons/icon-192.png" alt="" width="56" height="56" />
+        <h1>Watermeter</h1>
+      </header>
+
+      <!-- Shown while we figure out the auth state. -->
+      <section id="loading" class="card">
+        <p>Loading…</p>
+      </section>
+
+      <!-- Signed out. -->
+      <section id="signed-out" class="card" hidden>
+        <p>Sign in to monitor and control the water.</p>
+        <button id="sign-in" class="btn btn--primary">Sign in with Google</button>
+      </section>
+
+      <!-- Signed in. -->
+      <section id="signed-in" class="card" hidden>
+        <p class="muted">Signed in as <span id="user-email"></span></p>
+        <p class="placeholder">Water controls are coming soon.</p>
+        <button id="sign-out" class="btn">Sign out</button>
+      </section>
+
+      <p id="error" class="error" hidden></p>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
