@@ -147,10 +147,15 @@ create table meter (
 
 ## Building and running
 
-From the repo root (`make` targets):
+**Deploying to the Pi:** the Pi's Go is too old to build this repo — cross-compile
+on your workstation and copy the binary over. See
+**[docs/rpi-deploy.md](docs/rpi-deploy.md)** for the full recipe, including
+verification and rollback.
+
+On a machine with Go ≥ 1.23, the `make` targets still work from the repo root:
 
 ```sh
-make build           # builds rpi/ -> bin/watermeter and copies the .env
+make build           # builds rpi/ -> bin/watermeter, copies .env + service-account
 make run             # build, stop the service, run bin/watermeter in foreground
 make startService    # sudo systemctl restart watermeter
 make stopService     # sudo systemctl stop watermeter
