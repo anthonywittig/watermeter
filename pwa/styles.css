@@ -94,6 +94,47 @@ h1 {
   background: var(--accent-hover);
 }
 
+.btn--danger {
+  background: #7a1f1f;
+}
+
+.btn--danger:hover {
+  background: #9a2727;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.valve {
+  margin: 8px 0 20px;
+}
+
+.valve__status {
+  font-size: 1.1rem;
+  margin-bottom: 16px;
+}
+
+.valve__state--on {
+  color: #6fdc8c;
+}
+
+.valve__state--off {
+  color: var(--muted);
+}
+
+.valve__buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.valve__meta {
+  margin-top: 14px;
+  font-size: 0.85rem;
+}
+
 .error {
   color: var(--error);
   font-size: 0.9rem;
