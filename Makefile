@@ -15,3 +15,6 @@ stopService:
 
 deploy-lambdas:
 	./bin/deploy-lambda/run.sh watermeter-deployer-role inbound-text $(token)
+
+deploy-rpi:
+	./dev/deploy-rpi.sh $(pi)

@@ -21,15 +21,26 @@ runtime deps needed on the Pi.
 - SSH access to the Pi as the `pi` user.
 - The `pi` user can `sudo systemctl` without a password (default on Raspbian).
 
-## Deploy steps
+## Deploy
 
 From the `watermeter` repo root on your workstation (replace `<pi-address>`
 with your Pi's hostname or IP):
 
 ```sh
-# 0. Be on the code you mean to ship
-git checkout master && git pull
+git checkout master && git pull       # be on the code you mean to ship
+./dev/deploy-rpi.sh <pi-address>      # or: make deploy-rpi pi=<pi-address>
+```
 
+The script cross-compiles, stops the service, backs up the running binary to
+`bin/watermeter.bak`, copies the binary + `.env` + `service-account.json` into
+the Pi's `bin/`, restarts, and verifies the service came up without
+fatals/panics (it fails loudly and prints logs if not).
+
+### What it does, step by step
+
+Equivalent manual steps, if you ever need them:
+
+```sh
 # 1. Cross-compile for the Pi (armv7l, 32-bit)
 (cd rpi && GOOS=linux GOARCH=arm GOARM=7 go build -o /tmp/watermeter main.go)
 
@@ -49,7 +60,10 @@ ssh pi@<pi-address> \
 
 Config-only changes (a `.env` edit, a new service-account key) are steps 2–4
 without the compile: the service reads config at startup, so copy the file and
-restart.
+restart. (Or just run the full script — the rebuild is cheap.)
+
+Note: every deploy restarts the service, and startup cycles the valve
+(close → open, ~20 s) — a brief water interruption.
 
 ## Verify
 
