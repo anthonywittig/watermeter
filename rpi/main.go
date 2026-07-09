@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 
+	"cloud.google.com/go/firestore"
 	"github.com/anthonywittig/watermeter/watermeter"
 	"github.com/anthonywittig/watermeter/watermeter/pulselisteners"
 	"github.com/anthonywittig/watermeter/watermeter/sqs"
@@ -20,6 +21,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/api/option"
 )
 
 func main() {
@@ -74,6 +76,22 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Firestore-based remote control (the PWA). Runs alongside the SQS-based
+	// remote control above during the Twilio -> PWA transition.
+	fsClient, err := firestore.NewClient(
+		ctx,
+		os.Getenv("FIREBASE_PROJECT_ID"),
+		option.WithCredentialsFile(os.Getenv("FIREBASE_CREDENTIALS")),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer fsClient.Close()
+
+	if err := watermeter.StartFirestoreControl(ctx, wg, fsClient, valve); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := pulselisteners.HandlePulses(
 		ctx,
 		pulse,
@@ -111,7 +129,7 @@ func handlePrometheus() {
 }
 
 func cancelContextOnInterrupt(ctx context.Context, cancel context.CancelFunc) {
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
