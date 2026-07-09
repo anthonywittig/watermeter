@@ -5,13 +5,9 @@ on your workstation, `scp` into the Pi's `bin/`, restart the systemd service.**
 
 ## Why not build on the Pi?
 
-The original flow (`make build` on the Pi) no longer works, and the Pi also
-can't pull from GitHub:
-
-- **Go version.** `rpi/go.mod` requires Go ≥ 1.23 (for the Firestore SDK); the
-  Pi has Go 1.14 and is slow to build on anyway.
-- **Git auth.** The Pi has no GitHub credentials, so `git pull` fails there.
-  Deploying by copying files sidesteps both problems.
+The original flow (`make build` on the Pi) no longer works: `rpi/go.mod`
+requires Go ≥ 1.23 (for the Firestore SDK), the Pi's Go is older, and it's slow
+to build on anyway. Deploying by copying files sidesteps that.
 
 The Pi is an **armv7l (32-bit)** Raspberry Pi, so cross-compile with
 `GOOS=linux GOARCH=arm GOARM=7`. Go produces a statically-linked binary — no
@@ -22,15 +18,7 @@ runtime deps needed on the Pi.
 - Both repos cloned side by side on your workstation (`watermeter` +
   `watermeter-config`), with `watermeter-config` populated (rpi `.env`,
   `config/firebase/service-account.json`).
-- **SSH key auth to the Pi** so the copy steps don't prompt for a password:
-
-  ```sh
-  ssh-copy-id pi@<pi-address>    # enter the Pi password once
-  ssh pi@<pi-address> echo ok    # verify: no password prompt
-  ```
-
-  This installs your workstation's public key into the Pi's
-  `~/.ssh/authorized_keys`. Password login keeps working; key auth is additive.
+- SSH access to the Pi as the `pi` user.
 - The `pi` user can `sudo systemctl` without a password (default on Raspbian).
 
 ## Deploy steps

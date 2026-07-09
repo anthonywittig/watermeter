@@ -147,9 +147,9 @@ create table meter (
 
 ## Building and running
 
-**Deploying to the Pi:** the Pi can't build or pull this repo itself (old Go,
-no GitHub auth) — cross-compile on your workstation and copy the binary over.
-See **[docs/rpi-deploy.md](docs/rpi-deploy.md)** for the full recipe, including
+**Deploying to the Pi:** the Pi's Go is too old to build this repo — cross-compile
+on your workstation and copy the binary over. See
+**[docs/rpi-deploy.md](docs/rpi-deploy.md)** for the full recipe, including
 verification and rollback.
 
 On a machine with Go ≥ 1.23, the `make` targets still work from the repo root:
