@@ -23,8 +23,8 @@ runtime deps needed on the Pi.
 
 ## Deploy steps
 
-From the `watermeter` repo root on your workstation (Pi address used below:
-`192.168.86.135`):
+From the `watermeter` repo root on your workstation (replace `<pi-address>`
+with your Pi's hostname or IP):
 
 ```sh
 # 0. Be on the code you mean to ship
@@ -34,16 +34,16 @@ git checkout master && git pull
 (cd rpi && GOOS=linux GOARCH=arm GOARM=7 go build -o /tmp/watermeter main.go)
 
 # 2. Stop the service and back up the running binary (rollback point)
-ssh pi@192.168.86.135 \
+ssh pi@<pi-address> \
   'sudo systemctl stop watermeter && cp ~/projects/watermeter/bin/watermeter ~/projects/watermeter/bin/watermeter.bak'
 
 # 3. Copy the binary + config into the Pi's bin/
-scp /tmp/watermeter                                            pi@192.168.86.135:projects/watermeter/bin/watermeter
-scp ../watermeter-config/config/rpi/.env                       pi@192.168.86.135:projects/watermeter/bin/.env
-scp ../watermeter-config/config/firebase/service-account.json  pi@192.168.86.135:projects/watermeter/bin/service-account.json
+scp /tmp/watermeter                                            pi@<pi-address>:projects/watermeter/bin/watermeter
+scp ../watermeter-config/config/rpi/.env                       pi@<pi-address>:projects/watermeter/bin/.env
+scp ../watermeter-config/config/firebase/service-account.json  pi@<pi-address>:projects/watermeter/bin/service-account.json
 
 # 4. Restart and verify
-ssh pi@192.168.86.135 \
+ssh pi@<pi-address> \
   'chmod +x ~/projects/watermeter/bin/watermeter && sudo systemctl start watermeter && sleep 25 && systemctl is-active watermeter'
 ```
 
@@ -54,7 +54,7 @@ restart.
 ## Verify
 
 ```sh
-ssh pi@192.168.86.135 'sudo journalctl -u watermeter -n 50 --no-pager'
+ssh pi@<pi-address> 'sudo journalctl -u watermeter -n 50 --no-pager'
 ```
 
 Healthy startup looks like:
@@ -72,7 +72,7 @@ PWA should print `firestore control: opening valve` / `closing valve`.
 ## Rollback
 
 ```sh
-ssh pi@192.168.86.135 \
+ssh pi@<pi-address> \
   'sudo systemctl stop watermeter && cp ~/projects/watermeter/bin/watermeter.bak ~/projects/watermeter/bin/watermeter && sudo systemctl start watermeter'
 ```
 
