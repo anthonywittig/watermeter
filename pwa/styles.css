@@ -135,6 +135,15 @@ h1 {
   font-size: 0.85rem;
 }
 
+.notifications {
+  margin: 0 0 20px;
+}
+
+.notifications__status {
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
 .error {
   color: var(--error);
   font-size: 0.9rem;

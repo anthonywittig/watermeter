@@ -1,9 +1,14 @@
 // App-shell service worker. Network-first so an online user always gets the
 // latest code (important — this app controls a water valve); the cache is only
 // an offline fallback. Bump CACHE whenever you want to guarantee old entries
-// are dropped. Phase 3 adds a separate firebase-messaging-sw.js for push.
+// are dropped.
+//
+// This worker also receives FCM push (the page passes this registration to
+// getToken), so there's no separate firebase-messaging-sw.js. The rpi sends
+// data-only messages ({data: {title, body}}) and the handlers below display
+// them — keeping display logic here rather than split with the FCM SDK.
 
-const CACHE = "watermeter-shell-v2";
+const CACHE = "watermeter-shell-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -27,6 +32,43 @@ self.addEventListener("activate", (event) => {
       )
   );
   self.clients.claim();
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  let payload = {};
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = {};
+  }
+  const data = payload.data || {};
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Watermeter", {
+      body: data.body || "",
+      icon: "./icons/icon-192.png",
+      badge: "./icons/icon-192.png",
+      tag: "watermeter", // collapse repeats into one notification
+    })
+  );
+});
+
+// Tapping the notification focuses the app (or opens it) — landing the user
+// on the valve control so they can turn the water back on.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((windows) => {
+        for (const win of windows) {
+          if ("focus" in win) return win.focus();
+        }
+        return clients.openWindow("./");
+      })
+  );
 });
 
 self.addEventListener("fetch", (event) => {

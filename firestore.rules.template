@@ -23,9 +23,14 @@ service cloud.firestore {
         && request.resource.data.requestedBy == request.auth.token.email;
     }
 
-    // Per-device FCM push tokens. Tightened in Phase 3.
+    // Per-device FCM push tokens, written by the PWA (doc id == the token).
+    // The rpi reads these via the Admin SDK, which bypasses rules — clients
+    // never need to read them, so keep each other's tokens private.
     match /pushTokens/{token} {
-      allow read, write: if isAllowed();
+      allow read: if false;
+      allow create, update: if isAllowed()
+        && request.resource.data.email == request.auth.token.email;
+      allow delete: if isAllowed();
     }
 
     // Deny everything else.
