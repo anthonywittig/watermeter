@@ -12,10 +12,11 @@ import (
 )
 
 type flowMonitor struct {
-	ctx    context.Context
-	db     *sql.DB
-	texter *Texter
-	valve  *iot.Valve
+	ctx      context.Context
+	db       *sql.DB
+	texter   *Texter
+	notifier *PushNotifier
+	valve    *iot.Valve
 }
 
 func StartFlowMonitor(
@@ -23,13 +24,15 @@ func StartFlowMonitor(
 	wg *sync.WaitGroup,
 	db *sql.DB,
 	texter *Texter,
+	notifier *PushNotifier,
 	valve *iot.Valve,
 ) {
 	fm := flowMonitor{
-		ctx:    ctx,
-		db:     db,
-		texter: texter,
-		valve:  valve,
+		ctx:      ctx,
+		db:       db,
+		texter:   texter,
+		notifier: notifier,
+		valve:    valve,
 	}
 
 	tick := time.Tick(5 * time.Minute)
@@ -62,19 +65,35 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 	gallons := float64(metricCount) * 0.1
 	if gallons > 20 {
 		if err := fm.valve.Close(); err != nil {
-			// We probably still want to try to send the text... we'll just ignore any errors it has.
-			fm.sendHighWaterText(gallons)
+			// We probably still want to try to alert... we'll just ignore any errors it has.
+			fm.sendHighWaterAlerts(gallons)
 			return fmt.Errorf("error closing valve: %w", err)
 		}
-		if err := fm.sendHighWaterText(gallons); err != nil {
-			return fmt.Errorf("error sending high water text: %w", err)
+		if err := fm.sendHighWaterAlerts(gallons); err != nil {
+			return fmt.Errorf("error sending high water alerts: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func (fm *flowMonitor) sendHighWaterText(gallons float64) error {
-	log.Printf("--- sendHighWaterText --- %.2f\n", gallons)
-	return fm.texter.SendMessage(fmt.Sprintf("The water is running full blast! %.2f gallons in 5 minutes.", gallons))
+// sendHighWaterAlerts notifies over both channels — Twilio SMS and FCM push —
+// during the Twilio -> PWA transition. A failure on one channel doesn't stop
+// the other.
+func (fm *flowMonitor) sendHighWaterAlerts(gallons float64) error {
+	log.Printf("--- sendHighWaterAlerts --- %.2f\n", gallons)
+	message := fmt.Sprintf("The water is running full blast! %.2f gallons in 5 minutes.", gallons)
+
+	var pushErr error
+	if fm.notifier != nil {
+		pushErr = fm.notifier.NotifyAll(fm.ctx, "Water shut off", message)
+		if pushErr != nil {
+			log.Printf("error sending push: %v", pushErr)
+		}
+	}
+
+	if err := fm.texter.SendMessage(message); err != nil {
+		return fmt.Errorf("error sending text: %w", err)
+	}
+	return pushErr
 }

@@ -110,7 +110,17 @@ func main() {
 		RecipientPhoneNumber: os.Getenv("TWILIO_RECIPIENT_PHONE_NUMBER"),
 	}
 
-	watermeter.StartFlowMonitor(ctx, wg, db, texter, valve)
+	notifier, err := watermeter.NewPushNotifier(
+		ctx,
+		fsClient,
+		os.Getenv("FIREBASE_PROJECT_ID"),
+		os.Getenv("FIREBASE_CREDENTIALS"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	watermeter.StartFlowMonitor(ctx, wg, db, texter, notifier, valve)
 
 	wg.Wait()
 }
