@@ -6,3 +6,6 @@ build/
 .firebaserc
 firestore.rules
 pwa/firebase-config.js
+
+# firebase CLI local cache
+.firebase/

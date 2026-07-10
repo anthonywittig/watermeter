@@ -1,10 +1,11 @@
 # PWA migration plan: replacing Twilio with a Firebase PWA
 
-> Status: in progress (Phase 0). Decisions locked: **all-in on Firebase/GCP**
-> (retire Twilio *and* AWS) on a **dedicated new project** (`watermeter-501022`,
-> *not* the monitoring project — monitoring downtime during the transition is
-> acceptable), with a **parallel rollout** of the Twilio/valve path (keep Twilio
-> live until the family is onboarded).
+> Status: **complete** (Phase 5 landed; Phase 4 onboarding continues as family
+> members add devices). Decisions locked along the way: **all-in on Firebase/GCP**
+> (Twilio *and* AWS retired) on a **dedicated new project** (`watermeter-501022`,
+> *not* the monitoring project — monitoring downtime during the transition was
+> acceptable), with a **parallel rollout** of the Twilio/valve path until the
+> family was onboarded. This doc is kept as the historical record of the plan.
 
 ## Goal
 
@@ -115,12 +116,15 @@ during the transition.
 - Install on each family member's device; confirm push *and* control work for
   everyone. Twilio stays fully live as the safety net.
 
-### Phase 5 — Retire Twilio + AWS
-- Remove the Twilio path in `texter.go` / `flowmonitor.go`.
-- Delete the `inbound-text` Lambda, the SQS queue, the SQS poll in
-  `remotecontrol.go`, and `bin/deploy-lambda/` (if nothing else uses it).
-- Strip Twilio/AWS keys from `watermeter-config` (`.env`, `.env.json`, and the
-  `.example` files); update the READMEs / AGENTS.md to the Firebase architecture.
+### Phase 5 — Retire Twilio + AWS ✅
+- Removed the Twilio path (`texter.go`), the SQS poll (`remotecontrol.go` +
+  `watermeter/sqs/`), the whole `lambdas/` module, and `bin/deploy-lambda/`.
+  `flowmonitor` alerts via push only; `go.mod` has no AWS deps.
+- Stripped Twilio/AWS config from `watermeter-config` and the `.example` files;
+  READMEs / AGENTS.md rewritten for the Firebase-only architecture.
+- Cloud-side cleanup (manual, in consoles): delete the `inbound-text` Lambda +
+  its IAM role, the `water-meter-rpi.fifo` SQS queue, and close/release the
+  Twilio number.
 
 ## New rpi dependencies (when we start)
 
