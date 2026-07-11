@@ -14,10 +14,14 @@ service cloud.firestore {
         && request.auth.token.email in [__ALLOWED_EMAILS__];
     }
 
-    // Desired valve state, written by the PWA and watched by the rpi.
-    // level <= 0 means closed/off, > 0 means open/on.
+    // valve/state is the DESIRED state (written by the PWA; the rpi also
+    // writes it on auto-shutoff, via the Admin SDK which bypasses rules).
+    // valve/actual is the hardware's ACTUAL state, written only by the rpi —
+    // clients can read both but write only state. level <= 0 = closed/off.
     match /valve/{doc} {
       allow read: if isAllowed();
+    }
+    match /valve/state {
       allow write: if isAllowed()
         && request.resource.data.level is number
         && request.resource.data.requestedBy == request.auth.token.email;
