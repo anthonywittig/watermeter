@@ -85,7 +85,8 @@ func main() {
 		pulse,
 		wg,
 		db,
-		os.Getenv("GCP_PROJECT_ID"),
+		os.Getenv("FIREBASE_PROJECT_ID"),
+		os.Getenv("FIREBASE_CREDENTIALS"),
 	); err != nil {
 		log.Fatal(err)
 	}
