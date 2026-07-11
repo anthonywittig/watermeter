@@ -8,6 +8,7 @@ import (
 
 	monitoring "cloud.google.com/go/monitoring/apiv3"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"google.golang.org/api/option"
 	"google.golang.org/genproto/googleapis/api/metric"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
@@ -23,8 +24,8 @@ type GcpMonitor struct {
 	pulsesNotRecorded     int
 }
 
-func NewGcpMonitor(ctx context.Context, db *sql.DB, gcpProjectID string) (*GcpMonitor, error) {
-	gcpClient, err := monitoring.NewMetricClient(ctx)
+func NewGcpMonitor(ctx context.Context, db *sql.DB, gcpProjectID string, credentialsFile string) (*GcpMonitor, error) {
+	gcpClient, err := monitoring.NewMetricClient(ctx, option.WithCredentialsFile(credentialsFile))
 	if err != nil {
 		return nil, err
 	}
@@ -56,10 +57,7 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 		TimeSeries: []*monitoringpb.TimeSeries{
 			{
 				Metric: &metricpb.Metric{
-					Type: "custom.googleapis.com/test2",
-					Labels: map[string]string{
-						"environment": "STAGING",
-					},
+					Type: "custom.googleapis.com/watermeter/gallons",
 				},
 				MetricKind: metric.MetricDescriptor_CUMULATIVE,
 				Resource: &monitoredres.MonitoredResource{

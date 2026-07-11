@@ -18,13 +18,14 @@ func HandlePulses(
 	wg *sync.WaitGroup,
 	db *sql.DB,
 	gcpProjectID string,
+	gcpCredentialsFile string,
 ) error {
 	handlers := []PulseHandler{
 		NewDatabaseRecorder(db),
 		NewPrometheusRecorder(),
 	}
 
-	if g, err := NewGcpMonitor(ctx, db, gcpProjectID); err != nil {
+	if g, err := NewGcpMonitor(ctx, db, gcpProjectID, gcpCredentialsFile); err != nil {
 		return err
 	} else {
 		handlers = append(handlers, g)
