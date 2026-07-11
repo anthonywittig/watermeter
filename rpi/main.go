@@ -84,7 +84,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	watermeter.StartUsagePublisher(ctx, wg, db, fsClient)
+	watermeter.StartUsagePublisher(ctx, wg, db, fsClient, os.Getenv("USAGE_TIMEZONE"))
 
 	if err := pulselisteners.HandlePulses(
 		ctx,
