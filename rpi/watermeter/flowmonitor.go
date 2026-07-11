@@ -14,7 +14,6 @@ import (
 type flowMonitor struct {
 	ctx      context.Context
 	db       *sql.DB
-	texter   *Texter
 	notifier *PushNotifier
 	valve    *iot.Valve
 }
@@ -23,14 +22,12 @@ func StartFlowMonitor(
 	ctx context.Context,
 	wg *sync.WaitGroup,
 	db *sql.DB,
-	texter *Texter,
 	notifier *PushNotifier,
 	valve *iot.Valve,
 ) {
 	fm := flowMonitor{
 		ctx:      ctx,
 		db:       db,
-		texter:   texter,
 		notifier: notifier,
 		valve:    valve,
 	}
@@ -77,23 +74,8 @@ func (fm *flowMonitor) monitorAndAlarm() error {
 	return nil
 }
 
-// sendHighWaterAlerts notifies over both channels — Twilio SMS and FCM push —
-// during the Twilio -> PWA transition. A failure on one channel doesn't stop
-// the other.
 func (fm *flowMonitor) sendHighWaterAlerts(gallons float64) error {
 	log.Printf("--- sendHighWaterAlerts --- %.2f\n", gallons)
 	message := fmt.Sprintf("The water is running full blast! %.2f gallons in 5 minutes.", gallons)
-
-	var pushErr error
-	if fm.notifier != nil {
-		pushErr = fm.notifier.NotifyAll(fm.ctx, "Water shut off", message)
-		if pushErr != nil {
-			log.Printf("error sending push: %v", pushErr)
-		}
-	}
-
-	if err := fm.texter.SendMessage(message); err != nil {
-		return fmt.Errorf("error sending text: %w", err)
-	}
-	return pushErr
+	return fm.notifier.NotifyAll(fm.ctx, "Water shut off", message)
 }

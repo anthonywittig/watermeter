@@ -5,25 +5,32 @@ A Raspberry Pi–based water meter monitor with automatic and remote water shuto
 The house water meter has a magnet on its spinning dial; a passive two-wire reed
 switch mounted next to the dial closes once per revolution, generating one pulse
 per 0.1 gallon. A Go service on the Pi counts those pulses, records them to
-several backends, and watches for runaway flow. If too much water flows in a short
-window (e.g. a burst pipe), it automatically closes a motorized valve and texts
-you. You can also open/close the valve remotely by sending a text message.
+several backends, and watches for runaway flow. If too much water flows in a
+short window (e.g. a burst pipe), it automatically closes a motorized valve and
+push-notifies the family. Anyone in the family can turn the water back on (or
+off) from an installable web app (PWA).
 
 ```
-                          ┌──────────────────────────────────────────┐
+                          ┌───────────────────────────────────────────┐
   water meter ──pulse──▶  │ rpi service (Go, runs on the Raspberry Pi)│
   (GPIO 18)               │                                           │
                           │  pulse fan-out ─▶ Postgres                │
                           │                ─▶ Prometheus (:8000)      │
                           │                ─▶ GCP custom metric       │
                           │                                           │
-                          │  flow monitor ─▶ close valve + Twilio SMS │
-                          │                  (> 20 gal / 5 min)       │
-                          │                                           │
-   text "0".."10" ──▶ Twilio ─▶ inbound-text Lambda ─▶ SQS ─▶ remote  │
-                          │     (Function URL)        (FIFO) control ─▶ valve
-                          └──────────────────────────────────────────┘
+                          │  flow monitor ─▶ close valve + FCM push   │
+                          │  (> 20 gal / 5 min)      │                │
+                          │                          ▼                │
+   family's PWA ◀──── FCM push ◀──────── pushTokens (Firestore)       │
+   (Firebase Hosting,                                                 │
+    Google sign-in) ──── valve/state (Firestore) ──▶ listener ──▶ valve
+                          └───────────────────────────────────────────┘
 ```
+
+Everything runs on one Firebase project: **Hosting** serves the PWA, **Auth**
+(Google sign-in) + **Firestore security rules** enforce an email allowlist,
+**Firestore** carries the desired valve state, and **Cloud Messaging (FCM)**
+delivers shutoff alerts. The Pi makes only outbound connections.
 
 Original meter pulse wiring comes from the
 [Freenove Ultimate Starter Kit tutorial](https://github.com/Freenove/Freenove_Ultimate_Starter_Kit_for_Raspberry_Pi/blob/master/Tutorial.pdf),
@@ -31,18 +38,13 @@ chapter 2 (the button wiring).
 
 ## Repository layout
 
-This is a monorepo containing **three independent Go modules**:
-
-| Path                 | Module                                | Go   | What it is |
-|----------------------|---------------------------------------|------|------------|
-| `rpi/`               | `github.com/anthonywittig/watermeter` | 1.14 | The long-running service that runs on the Raspberry Pi. |
-| `lambdas/`           | `lambdas`                             | 1.19 | AWS Lambda(s). Currently `inbound-text`, the Twilio inbound-SMS webhook. |
-| `bin/deploy-lambda/` | `deploy-lambda`                       | 1.18 | A Go tool that builds and deploys a lambda (function, IAM role, SQS queue). |
-
-Other directories:
-
-- `dev/` — `build.sh`, and the `watermeter.service` systemd unit (runs as user `pi`).
-- `rpi/monitoring/` — Prometheus + postgres_exporter Docker setup for the Pi.
+| Path        | What it is |
+|-------------|------------|
+| `rpi/`      | The Go module (`github.com/anthonywittig/watermeter`, Go ≥ 1.23) — the long-running service on the Pi. |
+| `rpi/cmd/testpush/` | Sends a test push through the real notification path (no need to run 20 gallons through the meter). |
+| `pwa/`      | The installable web app: valve control + shutoff alerts. Vanilla JS, Firebase SDK from the CDN, no build step. |
+| `dev/`      | `build.sh`, `render-config.sh`, `deploy-rpi.sh`, and the `watermeter.service` systemd unit. |
+| `rpi/monitoring/` | Prometheus + postgres_exporter Docker setup for the Pi. |
 
 ## How the rpi service works
 
@@ -60,23 +62,36 @@ Other directories:
     GCP caps reporting at one point per 10 s).
 - **Flow monitor** (`watermeter/flowmonitor.go`) — every 5 minutes, counts
   pulses in the last 5 minutes. If > 20 gallons, it **closes the valve** and
-  sends a Twilio SMS alert.
-- **Remote control** (`watermeter/remotecontrol.go`) — polls the SQS FIFO queue
-  `water-meter-rpi.fifo` every 10 s (AWS profile `water-meter-rpi`). A message
-  with `level <= 0` closes the valve; anything else opens it.
+  push-notifies every registered device.
+- **Remote control** (`watermeter/firestorecontrol.go`) — a realtime Firestore
+  listener on the `valve/state` doc; `level <= 0` closes the valve, anything
+  else opens it. Only actuates on state *changes* (restarts don't cycle the
+  valve needlessly), and converges the valve to the stored state on startup.
+- **Push** (`watermeter/push.go`) — fans a data-only FCM message out to every
+  token in the `pushTokens` collection, pruning tokens FCM reports dead.
 - **Valve** (`watermeter/iot/valve.go`) — drives a two-relay motorized valve;
   relays are active-low and held for 10 s per actuation (mutex-guarded).
-- **Texter** (`watermeter/texter.go`) — Twilio SMS client.
 - Prometheus metrics are served at `:8000/metrics`.
 
-## How the inbound text flow works
+## How the PWA works
 
-1. You text a number `0`–`10` to the Twilio number.
-2. Twilio calls the `inbound-text` Lambda's Function URL.
-3. The Lambda validates the Twilio signature, checks the sender against an
-   allow-list, and pushes the number as a valve "level" onto the SQS FIFO queue.
-4. The rpi remote-control loop picks it up and opens/closes the valve.
-5. The Lambda texts back a confirmation.
+The app lives in `pwa/` and is served from Firebase Hosting (installable on
+Android via "Add to Home Screen"; iOS 16.4+ also works if added to the home
+screen).
+
+1. **Sign in with Google.** Authentication says who you are; *authorization* is
+   the email allowlist enforced server-side by Firestore security rules — a
+   signed-in stranger gets "not authorized", and their reads/writes are
+   rejected by the rules regardless of what the UI shows.
+2. **Valve control.** The ON/OFF buttons write `{level, requestedBy,
+   requestedAt}` to the `valve/state` doc; a live snapshot listener shows the
+   current state and who last changed it. The rpi's listener actuates the real
+   valve.
+3. **Shutoff alerts.** "Enable shutoff alerts" (per device) registers an FCM
+   token under `pushTokens/{token}`. The app's own service worker receives the
+   push and shows the notification; tapping it opens the app on the valve
+   control. There's no separate `firebase-messaging-sw.js` — the one service
+   worker handles the app shell *and* push.
 
 ## Configuration
 
@@ -87,19 +102,18 @@ project ID) lives in the sibling
 [`watermeter-config`](https://github.com/anthonywittig/watermeter-config) repo,
 which must be cloned next to this one (`../watermeter-config`).
 
-- `dev/build.sh` copies `../watermeter-config/config/rpi/.env` into `bin/`.
-- The lambda's `.env.json` is supplied by `watermeter-config`'s deploy step.
+- `dev/build.sh` copies the rpi `.env` and the Firebase service-account key
+  into `bin/`.
 - `dev/render-config.sh` generates the Firebase deployment files —
   `.firebaserc`, `pwa/firebase-config.js`, and `firestore.rules` — from
   `watermeter-config/config/firebase/`. All three are **gitignored** (they're
   generated); run it before `firebase deploy`.
 
-See the `*.example*` files in `watermeter-config` (and `rpi/.env.example` /
-`lambdas/cmd/inbound-text/.env.example.json`) for the shape of the config.
+See the `*.example*` files in `watermeter-config` (and `rpi/.env.example`) for
+the shape of the config.
 
 ## Firebase setup (one-time, manual)
 
-The PWA runs on Firebase (see [docs/pwa-migration-plan.md](docs/pwa-migration-plan.md)).
 Standing up a deployment requires a few clicks in the Firebase / Google Cloud
 consoles that can't be scripted — these create the project and its credentials.
 Do them once, then feed the resulting values into `watermeter-config`.
@@ -124,8 +138,8 @@ Do them once, then feed the resulting values into `watermeter-config`.
    `web-config.json`.
 6. **Service account for the rpi** → *Project Settings → Service accounts →
    Generate new private key*. This JSON **is a secret** — store it in
-   `watermeter-config` (wired up when the rpi talks to Firestore/FCM), never in
-   this repo.
+   `watermeter-config` (the rpi uses it for Firestore + FCM), never in this
+   repo.
 
 Then populate `watermeter-config/config/firebase/` (see the `*.example.json`
 files there), and:
@@ -133,7 +147,7 @@ files there), and:
 ```sh
 firebase login                       # once, to authenticate the CLI
 ./dev/render-config.sh               # generate .firebaserc, pwa/firebase-config.js, firestore.rules
-firebase deploy --only firestore:rules
+firebase deploy                      # hosting + firestore rules
 ```
 
 ## Database (poor man's migrations)
@@ -150,26 +164,52 @@ create table meter (
 **Deploying to the Pi:** the Pi's Go is too old to build this repo — cross-compile
 on your workstation and copy the binary over. See
 **[docs/rpi-deploy.md](docs/rpi-deploy.md)** for the full recipe, including
-verification and rollback.
+verification and rollback. Short version:
 
-On a machine with Go ≥ 1.23, the `make` targets still work from the repo root:
+```sh
+./dev/deploy-rpi.sh <pi-address>     # or: make deploy-rpi pi=<pi-address>
+```
+
+**Deploying the PWA / rules:**
+
+```sh
+./dev/render-config.sh && firebase deploy
+```
+
+On a machine with Go ≥ 1.23, the `make` targets work from the repo root:
 
 ```sh
 make build           # builds rpi/ -> bin/watermeter, copies .env + service-account
 make run             # build, stop the service, run bin/watermeter in foreground
 make startService    # sudo systemctl restart watermeter
 make stopService     # sudo systemctl stop watermeter
-make deploy-lambdas token=<MFA>   # build + deploy the inbound-text lambda
 ```
 
-Deploying a lambda runs `bin/deploy-lambda/run.sh <profile> <name> <mfa-token>`,
-which vets/tests, cross-compiles for `linux/amd64`, zips, and creates/updates
-the function, IAM role, and SQS queue.
+**Testing push notifications** (uses the real send path):
+
+```sh
+cd rpi && go run ./cmd/testpush \
+  -project <firebase-project-id> \
+  -credentials ../../watermeter-config/config/firebase/service-account.json
+```
 
 ## Setup notes / gotchas
 
-- **Twilio** — you must configure the webhook to point at the Lambda Function URL.
-- **Lambda** — the `Function URL` must be enabled (the deploy tool doesn't do
-  this yet — see `bin/deploy-lambda/main.go`).
-- The two config repos must be cloned side by side for the build to find the
-  `.env` files.
+- The two repos must be cloned side by side for the build/render steps to find
+  the config.
+- **Gmail dots matter for the allowlist.** ID tokens carry the account's
+  canonical address and the rules do an exact string match — `jane.doe@` won't
+  match an account registered as `janedoe@`. If someone sees "not authorized",
+  check their address character-for-character.
+- Every Pi deploy restarts the service, which cycles the valve (close → open,
+  ~20 s) — a brief water interruption.
+- Push tokens are per-device: each phone/browser needs its own "Enable shutoff
+  alerts" tap. Dead tokens are pruned automatically when a send fails.
+
+## History
+
+This project originally alerted via Twilio SMS and took commands by text
+message through an AWS Lambda + SQS pipeline. That stack was retired in favor
+of the Firebase PWA — see [docs/pwa-migration-plan.md](docs/pwa-migration-plan.md)
+for the migration plan and rationale. The old implementation lives in git
+history if you're curious.

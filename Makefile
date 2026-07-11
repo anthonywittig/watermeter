@@ -13,8 +13,5 @@ stopService:
 	echo "Stopping service"
 	sudo systemctl stop watermeter
 
-deploy-lambdas:
-	./bin/deploy-lambda/run.sh watermeter-deployer-role inbound-text $(token)
-
 deploy-rpi:
 	./dev/deploy-rpi.sh $(pi)

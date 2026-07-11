@@ -16,7 +16,6 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/anthonywittig/watermeter/watermeter"
 	"github.com/anthonywittig/watermeter/watermeter/pulselisteners"
-	"github.com/anthonywittig/watermeter/watermeter/sqs"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus"
@@ -54,11 +53,6 @@ func main() {
 	}
 	defer db.Close()
 
-	sqsService, err := sqs.NewSQSService(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	// Need to shut this down nicely?
 	go handlePrometheus()
 
@@ -71,13 +65,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = watermeter.StartRemoteControl(ctx, wg, sqsService, valve)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Firestore-based remote control (the PWA). Runs alongside the SQS-based
-	// remote control above during the Twilio -> PWA transition.
+	// Firestore-based remote control (the PWA).
 	fsClient, err := firestore.NewClient(
 		ctx,
 		os.Getenv("FIREBASE_PROJECT_ID"),
@@ -102,14 +90,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	texter := &watermeter.Texter{
-		Account:              os.Getenv("TWILIO_ACCOUNT"),
-		SID:                  os.Getenv("TWILIO_SID"),
-		Secret:               os.Getenv("TWILIO_SECRET"),
-		AccountPhoneNumber:   os.Getenv("TWILIO_ACCOUNT_PHONE_NUMBER"),
-		RecipientPhoneNumber: os.Getenv("TWILIO_RECIPIENT_PHONE_NUMBER"),
-	}
-
 	notifier, err := watermeter.NewPushNotifier(
 		ctx,
 		fsClient,
@@ -120,7 +100,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	watermeter.StartFlowMonitor(ctx, wg, db, texter, notifier, valve)
+	watermeter.StartFlowMonitor(ctx, wg, db, notifier, valve)
 
 	wg.Wait()
 }
