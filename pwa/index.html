@@ -44,6 +44,26 @@
           <p id="valve-meta" class="muted valve__meta" hidden></p>
         </div>
 
+        <!-- Water usage chart. -->
+        <div id="usage" class="usage" hidden>
+          <div class="usage__header">
+            <h2 class="usage__title">Usage</h2>
+            <div id="usage-ranges" class="usage__ranges" role="group" aria-label="Time range">
+              <button class="usage__range" data-range="hour" aria-pressed="false">Hour</button>
+              <button class="usage__range" data-range="day" aria-pressed="true">Day</button>
+              <button class="usage__range" data-range="week" aria-pressed="false">Week</button>
+              <button class="usage__range" data-range="month" aria-pressed="false">Month</button>
+            </div>
+          </div>
+          <p id="usage-total" class="muted usage__total"></p>
+          <div class="usage__chart-wrap">
+            <svg id="usage-chart" class="usage__chart" viewBox="0 0 360 160"
+              preserveAspectRatio="xMidYMid meet" role="img"
+              aria-label="Water usage over the selected time range"></svg>
+            <div id="usage-tooltip" class="usage__tooltip" hidden></div>
+          </div>
+        </div>
+
         <!-- Push notifications (shutoff alerts). -->
         <div id="notifications" class="notifications" hidden>
           <button id="notifications-enable" class="btn" hidden>

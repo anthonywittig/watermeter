@@ -8,7 +8,7 @@
 // data-only messages ({data: {title, body}}) and the handlers below display
 // them — keeping display logic here rather than split with the FCM SDK.
 
-const CACHE = "watermeter-shell-v3";
+const CACHE = "watermeter-shell-v4";
 const SHELL = [
   "./",
   "./index.html",

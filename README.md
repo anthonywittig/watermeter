@@ -69,6 +69,10 @@ chapter 2 (the button wiring).
   valve needlessly), and converges the valve to the stored state on startup.
 - **Push** (`watermeter/push.go`) — fans a data-only FCM message out to every
   token in the `pushTokens` collection, pruning tokens FCM reports dead.
+- **Usage publisher** (`watermeter/usagepublisher.go`) — every minute, rolls the
+  Postgres pulse log up into `usage/minutely` (last ~2 h) and `usage/hourly`
+  (last ~32 days) Firestore docs, keyed by bucket-start Unix seconds; skips the
+  write when nothing changed. The PWA charts from these.
 - **Valve** (`watermeter/iot/valve.go`) — drives a two-relay motorized valve;
   relays are active-low and held for 10 s per actuation (mutex-guarded).
 - Prometheus metrics are served at `:8000/metrics`.
@@ -92,6 +96,10 @@ screen).
    push and shows the notification; tapping it opens the app on the valve
    control. There's no separate `firebase-messaging-sw.js` — the one service
    worker handles the app shell *and* push.
+4. **Usage chart.** A bar chart of water usage with hour / day / week / month
+   ranges, live-updating from the `usage/*` docs. Minute bars for the hour
+   view, hour bars for the day view; week/month aggregate the hourly buckets
+   into calendar days in the viewer's own timezone.
 
 ## Configuration
 
@@ -157,6 +165,10 @@ create table meter (
    id serial primary key,
    recorded_at timestamp not null
 );
+
+-- The usage publisher aggregates ~32 days of pulses every minute; this index
+-- keeps that query off a full table scan.
+create index if not exists meter_recorded_at_idx on meter (recorded_at);
 ```
 
 ## Building and running
