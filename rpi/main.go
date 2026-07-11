@@ -60,12 +60,6 @@ func main() {
 
 	wg := &sync.WaitGroup{}
 
-	pulse, valve, err := watermeter.StartHardware(ctx, wg)
-	if err := db.Ping(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Firestore-based remote control (the PWA).
 	fsClient, err := firestore.NewClient(
 		ctx,
 		os.Getenv("FIREBASE_PROJECT_ID"),
@@ -76,11 +70,21 @@ func main() {
 	}
 	defer fsClient.Close()
 
-	if err := watermeter.StartFirestoreControl(ctx, wg, fsClient, valve); err != nil {
+	pulse, valve, err := watermeter.StartHardware(ctx, wg)
+	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
 
-	watermeter.StartUsagePublisher(ctx, wg, db, fsClient)
+	// StartHardware's valve init ends with the valve open; the wrapper tracks
+	// (and reports) the ACTUAL hardware state for everyone who drives it.
+	reportingValve := watermeter.NewReportingValve(ctx, fsClient, valve, true, "startup")
+
+	// Firestore-based remote control (the PWA).
+	if err := watermeter.StartFirestoreControl(ctx, wg, fsClient, reportingValve); err != nil {
+		log.Fatal(err)
+	}
+
+	watermeter.StartUsagePublisher(ctx, wg, db, fsClient, os.Getenv("USAGE_TIMEZONE"))
 
 	if err := pulselisteners.HandlePulses(
 		ctx,
@@ -103,7 +107,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	watermeter.StartFlowMonitor(ctx, wg, db, notifier, valve)
+	watermeter.StartFlowMonitor(ctx, wg, db, fsClient, notifier, reportingValve)
 
 	wg.Wait()
 }

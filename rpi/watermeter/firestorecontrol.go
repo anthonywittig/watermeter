@@ -8,29 +8,27 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-	"github.com/anthonywittig/watermeter/watermeter/iot"
 )
 
-// StartFirestoreControl watches the `valve/state` document written by the PWA
-// and drives the valve to match it. It runs ALONGSIDE the SQS-based remote
-// control (remotecontrol.go) during the Twilio -> PWA transition.
+// StartFirestoreControl watches the `valve/state` document (the DESIRED state,
+// written by the PWA — and by the flow monitor on auto-shutoff) and drives the
+// valve to match it.
 //
 // The document's `level` field is the desired state: <= 0 means closed, > 0
-// means open (mirrors the SQS ValveChangeRequested semantics). We only actuate
-// when the desired open/closed state actually changes, so restarts and repeated
-// snapshots don't needlessly cycle the valve. The first snapshot after startup
-// does actuate, converging the valve to whatever state Firestore holds.
+// means open. Actuation is delegated to the ReportingValve, which compares
+// against the hardware's ACTUAL state — so repeated snapshots, restarts, and
+// echoes of writes made by other components (e.g. the flow monitor closing
+// the valve itself) never re-actuate a valve that's already where it should be.
 type firestoreControl struct {
-	client   *firestore.Client
-	valve    *iot.Valve
-	lastOpen *bool
+	client *firestore.Client
+	valve  *ReportingValve
 }
 
 func StartFirestoreControl(
 	ctx context.Context,
 	wg *sync.WaitGroup,
 	client *firestore.Client,
-	valve *iot.Valve,
+	valve *ReportingValve,
 ) error {
 	fc := &firestoreControl{
 		client: client,
@@ -74,11 +72,11 @@ func (fc *firestoreControl) listen(ctx context.Context) error {
 		if !snap.Exists() {
 			continue
 		}
-		fc.apply(snap)
+		fc.apply(ctx, snap)
 	}
 }
 
-func (fc *firestoreControl) apply(snap *firestore.DocumentSnapshot) {
+func (fc *firestoreControl) apply(ctx context.Context, snap *firestore.DocumentSnapshot) {
 	levelRaw, err := snap.DataAt("level")
 	if err != nil {
 		log.Printf("valve doc has no level field: %v", err)
@@ -91,26 +89,21 @@ func (fc *firestoreControl) apply(snap *firestore.DocumentSnapshot) {
 		return
 	}
 
-	open := level > 0
-	if fc.lastOpen != nil && *fc.lastOpen == open {
-		return
-	}
-
-	if open {
-		fmt.Println("firestore control: opening valve")
-		if err := fc.valve.Open(); err != nil {
+	if level > 0 {
+		if !fc.valve.IsOpen() {
+			fmt.Println("firestore control: opening valve")
+		}
+		if err := fc.valve.Open(ctx, "remote"); err != nil {
 			log.Printf("error opening valve: %v", err)
-			return
 		}
 	} else {
-		fmt.Println("firestore control: closing valve")
-		if err := fc.valve.Close(); err != nil {
+		if fc.valve.IsOpen() {
+			fmt.Println("firestore control: closing valve")
+		}
+		if err := fc.valve.Close(ctx, "remote"); err != nil {
 			log.Printf("error closing valve: %v", err)
-			return
 		}
 	}
-
-	fc.lastOpen = &open
 }
 
 // toInt64 normalizes a Firestore numeric value. Integers written from the PWA

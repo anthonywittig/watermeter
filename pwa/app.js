@@ -37,9 +37,12 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 
-// Single doc holding the desired valve state. level <= 0 = OFF, > 0 = ON.
-// The rpi watches this doc (Phase 2b) and actuates the valve.
-const valveRef = doc(db, "valve", "state");
+// valve/state is the DESIRED state (level <= 0 = OFF, > 0 = ON) written by
+// this app (and by the rpi's flow monitor on auto-shutoff). valve/actual is
+// what the hardware really is, reported by the rpi — the UI shows actual, and
+// "Turning on/off…" while desired and actual disagree (an actuation takes ~10s).
+const valveStateRef = doc(db, "valve", "state");
+const valveActualRef = doc(db, "valve", "actual");
 
 const els = {
   loading: document.getElementById("loading"),
@@ -66,7 +69,8 @@ const els = {
 };
 
 let currentUser = null;
-let unsubscribeValve = null;
+let valveUnsubs = [];
+const valveDocs = { state: null, actual: null }; // null = not loaded yet
 
 function showError(message) {
   els.error.textContent = message;
@@ -84,28 +88,39 @@ function showUnauthorized() {
   els.unauthorized.hidden = false;
 }
 
-function renderValve(snap) {
-  clearError();
-  els.unauthorized.hidden = true;
+function renderValve() {
   els.valve.hidden = false;
 
-  // A successful valve read means this user is on the allowlist, so they can
-  // also see usage and register for push (those rules use the same gate).
-  subscribeUsage();
-  offerNotifications();
+  const state = valveDocs.state;
+  const actual = valveDocs.actual;
+  const desiredOn = (state?.level ?? 0) > 0;
 
-  const data = snap.exists() ? snap.data() : null;
-  const level = data?.level ?? 0;
-  const on = level > 0;
+  let text, mode;
+  if (state && actual && typeof actual.open === "boolean" && actual.open !== desiredOn) {
+    // The rpi hasn't caught up (an actuation takes ~10 s) — show progress.
+    text = desiredOn ? "turning ON…" : "turning OFF…";
+    mode = "pending";
+  } else if (actual && typeof actual.open === "boolean") {
+    text = actual.open ? "ON" : "OFF";
+    mode = actual.open ? "on" : "off";
+  } else {
+    // No actual report yet (fresh install / rpi offline): show desired.
+    text = desiredOn ? "ON" : "OFF";
+    mode = desiredOn ? "on" : "off";
+  }
 
-  els.valveState.textContent = on ? "ON" : "OFF";
-  els.valveState.classList.toggle("valve__state--on", on);
-  els.valveState.classList.toggle("valve__state--off", !on);
+  els.valveState.textContent = text;
+  els.valveState.classList.toggle("valve__state--on", mode === "on");
+  els.valveState.classList.toggle("valve__state--off", mode === "off");
+  els.valveState.classList.toggle("valve__state--pending", mode === "pending");
 
-  if (data?.requestedBy) {
-    const when = data.requestedAt?.toDate ? data.requestedAt.toDate() : null;
+  if (state?.requestedBy) {
+    const when = state.requestedAt?.toDate ? state.requestedAt.toDate() : null;
+    const who = state.requestedBy === "flow-monitor"
+      ? "auto-shutoff (high water flow)"
+      : state.requestedBy;
     els.valveMeta.textContent =
-      `Last set by ${data.requestedBy}` + (when ? ` · ${when.toLocaleString()}` : "");
+      `Last set by ${who}` + (when ? ` · ${when.toLocaleString()}` : "");
     els.valveMeta.hidden = false;
   } else {
     els.valveMeta.hidden = true;
@@ -126,7 +141,7 @@ async function setLevel(level) {
   els.valveOn.disabled = true;
   els.valveOff.disabled = true;
   try {
-    await setDoc(valveRef, {
+    await setDoc(valveStateRef, {
       level,
       requestedBy: currentUser.email,
       requestedAt: serverTimestamp(),
@@ -151,7 +166,9 @@ async function setLevel(level) {
 // bars for week/month are grouped by *local* calendar day.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const usageDocs = { minutely: null, hourly: null }; // raw buckets keyed by epoch-sec string
+// minutely/hourly buckets are keyed by epoch-sec string; daily by "YYYY-MM-DD"
+// in the deployment's configured timezone (see USAGE_TIMEZONE on the rpi).
+const usageDocs = { minutely: null, hourly: null, daily: null };
 let usageRange = "day";
 let usageUnsubs = [];
 
@@ -160,7 +177,13 @@ const USAGE_RANGES = {
   day: { label: "last 24 hours" },
   week: { label: "last 7 days" },
   month: { label: "last 30 days" },
+  year: { label: "last year" },
 };
+
+function localDateKey(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 // Build the bar list for the selected range: [{start: Date, gallons, label}].
 function usageBars(range) {
@@ -180,6 +203,21 @@ function usageBars(range) {
     for (let i = 23; i >= 0; i--) {
       const sec = curHour - i * 3600;
       bars.push({ start: new Date(sec * 1000), gallons: src[String(sec)] || 0 });
+    }
+  } else if (range === "year") {
+    // 52 weekly bars, each summing 7 daily buckets (most recent week ends today).
+    const src = usageDocs.daily || {};
+    const today = new Date();
+    for (let w = 51; w >= 0; w--) {
+      const start = new Date(
+        today.getFullYear(), today.getMonth(), today.getDate() - (w * 7 + 6)
+      );
+      let sum = 0;
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+        sum += src[localDateKey(day)] || 0;
+      }
+      bars.push({ start, gallons: sum });
     }
   } else {
     // week/month: sum hourly buckets into local calendar days.
@@ -207,20 +245,27 @@ function usageBarLabel(range, start) {
   if (range === "hour" || range === "day") {
     return start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
+  if (range === "year") {
+    return `Week of ${start.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+  }
   return start.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
 // Which bar indexes get an x-axis tick.
 function usageTickIndexes(range, bars) {
-  const every = { hour: 15, day: 6, week: 1, month: 7 }[range];
   const ticks = [];
   bars.forEach((b, i) => {
     if (range === "hour" || range === "day") {
       // tick on round local times (:00/:15/… for hour, midnight/6/12/18 for day)
+      const every = range === "hour" ? 15 : 6;
       const unit = range === "hour" ? b.start.getMinutes() : b.start.getHours();
       if (unit % every === 0) ticks.push(i);
-    } else if ((bars.length - 1 - i) % every === 0) {
-      ticks.push(i);
+    } else if (range === "year") {
+      // tick on the first week bar of each month
+      if (i > 0 && b.start.getMonth() !== bars[i - 1].start.getMonth()) ticks.push(i);
+    } else {
+      const every = range === "week" ? 1 : 7;
+      if ((bars.length - 1 - i) % every === 0) ticks.push(i);
     }
   });
   return ticks;
@@ -230,6 +275,7 @@ function usageTickLabel(range, start) {
   if (range === "hour") return start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   if (range === "day") return start.toLocaleTimeString([], { hour: "numeric" });
   if (range === "week") return start.toLocaleDateString([], { weekday: "narrow" });
+  if (range === "year") return start.toLocaleDateString([], { month: "short" });
   return start.toLocaleDateString([], { day: "numeric" });
 }
 
@@ -262,8 +308,9 @@ function renderUsage() {
 
   const bars = usageBars(usageRange);
   const total = bars.reduce((s, b) => s + b.gallons, 0);
+  const totalText = total >= 100 ? Math.round(total).toLocaleString() : total.toFixed(1);
   els.usageTotal.textContent =
-    `${total >= 100 ? Math.round(total) : total.toFixed(1)} gal in the ${USAGE_RANGES[usageRange].label}`;
+    `${totalText} gal in the ${USAGE_RANGES[usageRange].label}`;
 
   const W = 360, H = 160;
   const pad = { left: 30, right: 4, top: 8, bottom: 18 };
@@ -336,7 +383,9 @@ function showUsageTooltip(bar, hitEl) {
   const tip = els.usageTooltip;
   tip.textContent = "";
   const val = document.createElement("strong");
-  val.textContent = `${bar.gallons.toFixed(1)} gal`;
+  val.textContent = `${
+    bar.gallons >= 100 ? Math.round(bar.gallons).toLocaleString() : bar.gallons.toFixed(1)
+  } gal`;
   const when = document.createElement("span");
   when.textContent = usageBarLabel(usageRange, bar.start);
   tip.append(val, when);
@@ -365,7 +414,7 @@ els.usageRanges.addEventListener("click", (e) => {
 function subscribeUsage() {
   if (usageUnsubs.length) return;
   els.usage.hidden = false;
-  for (const name of ["minutely", "hourly"]) {
+  for (const name of ["minutely", "hourly", "daily"]) {
     usageUnsubs.push(
       onSnapshot(doc(db, "usage", name), (snap) => {
         usageDocs[name] = snap.exists() ? snap.data().buckets || {} : {};
@@ -385,11 +434,17 @@ function unsubscribeUsage() {
 // chart without Firestore (there's no auth/emulator in the static preview).
 if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
   window.__usageDebug = {
-    setDocs(minutely, hourly) {
+    setDocs(minutely, hourly, daily) {
       usageDocs.minutely = minutely;
       usageDocs.hourly = hourly;
+      usageDocs.daily = daily ?? usageDocs.daily;
       els.usage.hidden = false;
       renderUsage();
+    },
+    setValve(state, actual) {
+      valveDocs.state = state;
+      valveDocs.actual = actual;
+      renderValve();
     },
   };
 }
@@ -507,18 +562,36 @@ onAuthStateChanged(auth, (user) => {
     els.signedOut.hidden = true;
 
     // Reset the controls to a neutral state, then start listening. The
-    // snapshot listener reveals either the valve control (+ notifications)
+    // snapshot listeners reveal either the valve control (+ notifications)
     // or the "not authorized" note.
     els.valve.hidden = true;
     els.notifications.hidden = true;
     els.unauthorized.hidden = true;
     clearError();
-    unsubscribeValve = onSnapshot(valveRef, renderValve, onValveError);
+    valveDocs.state = null;
+    valveDocs.actual = null;
+    valveUnsubs = [
+      onSnapshot(valveStateRef, (snap) => {
+        valveDocs.state = snap.exists() ? snap.data() : {};
+        clearError();
+        els.unauthorized.hidden = true;
+        // A successful valve read means this user is on the allowlist, so
+        // they can also see usage and register for push (same rules gate).
+        subscribeUsage();
+        offerNotifications();
+        renderValve();
+      }, onValveError),
+      onSnapshot(valveActualRef, (snap) => {
+        valveDocs.actual = snap.exists() ? snap.data() : {};
+        renderValve();
+      }, (err) => {
+        // The state listener surfaces permission problems; just log here.
+        if (err?.code !== "permission-denied") console.error("valve/actual listener", err);
+      }),
+    ];
   } else {
-    if (unsubscribeValve) {
-      unsubscribeValve();
-      unsubscribeValve = null;
-    }
+    for (const u of valveUnsubs) u();
+    valveUnsubs = [];
     els.signedIn.hidden = true;
     els.signedOut.hidden = false;
     els.notifications.hidden = true;
