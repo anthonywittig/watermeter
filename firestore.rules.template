@@ -33,6 +33,13 @@ service cloud.firestore {
       allow delete: if isAllowed();
     }
 
+    // Usage rollups (usage/minutely, usage/hourly), written by the rpi via the
+    // Admin SDK (bypasses rules) and charted by the PWA.
+    match /usage/{doc} {
+      allow read: if isAllowed();
+      allow write: if false;
+    }
+
     // Deny everything else.
     match /{document=**} {
       allow read, write: if false;

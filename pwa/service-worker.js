@@ -8,7 +8,7 @@
 // data-only messages ({data: {title, body}}) and the handlers below display
 // them — keeping display logic here rather than split with the FCM SDK.
 
-const CACHE = "watermeter-shell-v3";
+const CACHE = "watermeter-shell-v5";
 const SHELL = [
   "./",
   "./index.html",
@@ -19,7 +19,13 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
+  event.waitUntil(
+    caches.open(CACHE).then((cache) =>
+      // cache: "reload" bypasses the browser's HTTP cache, so a new worker
+      // always precaches genuinely fresh shell files.
+      cache.addAll(SHELL.map((url) => new Request(url, { cache: "reload" })))
+    )
+  );
   self.skipWaiting();
 });
 
@@ -81,8 +87,16 @@ self.addEventListener("fetch", (event) => {
 
   // Network-first: fetch fresh, cache a copy for offline, fall back to cache
   // (and to the cached shell for navigations) when the network is unavailable.
+  // cache: "no-cache" forces etag revalidation so the browser's HTTP cache
+  // can't serve stale shell files after a deploy (cheap 304s when unchanged).
+  // A navigate Request can't be reconstructed with an init — use its URL.
+  const freshFetch =
+    request.mode === "navigate"
+      ? fetch(request.url, { cache: "no-cache" })
+      : fetch(new Request(request, { cache: "no-cache" }));
+
   event.respondWith(
-    fetch(request)
+    freshFetch
       .then((response) => {
         const copy = response.clone();
         caches.open(CACHE).then((cache) => cache.put(request, copy));

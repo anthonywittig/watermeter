@@ -135,6 +135,118 @@ h1 {
   font-size: 0.85rem;
 }
 
+.usage {
+  margin: 0 0 20px;
+}
+
+.usage__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.usage__title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.usage__ranges {
+  display: flex;
+  gap: 2px;
+  background: #0d2033;
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.usage__range {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.usage__range[aria-pressed="true"] {
+  background: #1c3a54;
+  color: var(--text);
+}
+
+.usage__total {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+}
+
+.usage__chart-wrap {
+  position: relative;
+}
+
+.usage__chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.usage__bar {
+  fill: #3987e5; /* validated ≥3:1 on the card surface */
+}
+
+.usage__hit {
+  fill: transparent;
+}
+
+.usage__hit:hover {
+  fill: rgba(234, 242, 248, 0.06);
+}
+
+.usage__grid {
+  stroke: rgba(159, 180, 198, 0.18);
+  stroke-width: 1;
+}
+
+.usage__baseline {
+  stroke: rgba(159, 180, 198, 0.4);
+  stroke-width: 1;
+}
+
+.usage__tick {
+  fill: var(--muted);
+  font-size: 9px;
+}
+
+.usage__tick--label {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+.usage__tooltip {
+  position: absolute;
+  top: -6px;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  background: #0d2033;
+  border: 1px solid rgba(159, 180, 198, 0.25);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.usage__tooltip strong {
+  color: var(--text);
+}
+
+.usage__tooltip[hidden] {
+  display: none;
+}
+
 .notifications {
   margin: 0 0 20px;
 }

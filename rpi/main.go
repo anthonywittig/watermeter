@@ -80,6 +80,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	watermeter.StartUsagePublisher(ctx, wg, db, fsClient)
+
 	if err := pulselisteners.HandlePulses(
 		ctx,
 		pulse,
