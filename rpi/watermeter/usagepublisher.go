@@ -15,19 +15,25 @@ import (
 // StartUsagePublisher periodically rolls the Postgres pulse log up into three
 // small Firestore documents the PWA charts from:
 //
-//	usage/minutely — gallons per minute for the last ~2 hours
-//	usage/hourly   — gallons per hour for the last ~32 days
-//	usage/daily    — gallons per day for the last ~370 days (the year view)
+//	usage/minutely — gallons per minute for the last ~6 hours
+//	usage/hourly   — gallons per hour for the last ~90 days
+//	usage/daily    — gallons per day for the last ~3 years (the year view)
 //
 // Minutely/hourly buckets are keyed by the bucket's start time in Unix seconds
 // (UTC), so the client can render them in its own local timezone (and
 // aggregate hourly buckets into local-timezone days for the week/month views).
 // Daily buckets are keyed by date string ("YYYY-MM-DD") in the configured
-// timezone (default UTC) — a year of hourly buckets would be too big/chatty a
+// timezone (default UTC) — years of hourly buckets would be too big/chatty a
 // doc, so days are pre-bucketed server-side. Documents are only written when
 // their contents change, so idle periods cost no writes; the daily rollup
-// (which scans ~a year of pulses) runs every 15 minutes rather than every
+// (which scans ~3 years of pulses) runs every 15 minutes rather than every
 // minute.
+//
+// The PWA mirrors these windows (see pwa/app.js) to decide how far back a chart
+// bar can be zoomed into, so widen the two together. Every listening client
+// re-downloads a whole doc on each write, so the windows on the hot docs
+// (minutely/hourly, rewritten every minute water flows) cost bandwidth to grow;
+// the daily doc is cheap by comparison.
 type usagePublisher struct {
 	ctx      context.Context
 	db       *sql.DB
@@ -79,15 +85,20 @@ func StartUsagePublisher(
 }
 
 func (up *usagePublisher) publishAll(includeDaily bool) {
-	if err := up.publish("minutely", "minute", "120 minutes"); err != nil {
+	if err := up.publish("minutely", "minute", "6 hours"); err != nil {
 		log.Printf("usage publisher (minutely): %v", err)
 	}
-	if err := up.publish("hourly", "hour", "32 days"); err != nil {
+	if err := up.publish("hourly", "hour", "90 days"); err != nil {
 		log.Printf("usage publisher (hourly): %v", err)
 	}
 	if includeDaily {
+		start := time.Now()
 		if err := up.publishDaily(); err != nil {
 			log.Printf("usage publisher (daily): %v", err)
+		} else if took := time.Since(start); took > 30*time.Second {
+			// The scan grows with the window; if it ever crowds the 15-minute
+			// cadence, roll the older days up incrementally instead.
+			log.Printf("usage publisher: daily rollup took %s", took)
 		}
 	}
 }
@@ -98,7 +109,7 @@ func (up *usagePublisher) publishDaily() error {
 	rows, err := up.db.QueryContext(up.ctx, `
 		select to_char((recorded_at at time zone 'UTC') at time zone $1, 'YYYY-MM-DD') as bucket, count(*)
 		from meter
-		where recorded_at >= (now() at time zone 'UTC') - interval '370 days'
+		where recorded_at >= (now() at time zone 'UTC') - interval '1100 days'
 		group by bucket
 		order by bucket`, up.timezone)
 	if err != nil {

@@ -174,8 +174,14 @@ async function setLevel(level) {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MINUTE_MS = 60000, HOUR_MS = 60 * MINUTE_MS, DAY_MS = 24 * HOUR_MS;
-// The rpi keeps ~32 days of hourly buckets — stay a little inside that.
-const HOURLY_DAYS = 30;
+
+// How much history the rpi's rollups keep (usagepublisher.go: 6 h of minutely,
+// 90 days of hourly, 1100 days of daily). These sit just inside the real
+// windows, whose oldest bucket is partly trimmed away — widen them here when
+// you widen them there.
+const MINUTELY_HOURS = 5;
+const HOURLY_DAYS = 88;
+const DAILY_DAYS = 1080;
 
 // minutely/hourly buckets are keyed by epoch-sec string; daily by "YYYY-MM-DD"
 // in the deployment's configured timezone (see USAGE_TIMEZONE on the rpi).
@@ -194,13 +200,13 @@ const USAGE_RANGES = {
 };
 
 // Clicking a bar opens the range that shows that bar's period in finer bars.
-// The rpi only keeps ~2 h of minutely and ~32 days of hourly buckets (see
-// usagepublisher.go), so bars older than their target's data don't zoom.
+// The rollups don't go back forever, so bars older than the buckets their
+// target range would need don't zoom.
 const USAGE_ZOOM = {
-  year: { range: "week", maxAge: 370 * DAY_MS },
+  year: { range: "week", maxAge: DAILY_DAYS * DAY_MS },
   month: { range: "day", maxAge: HOURLY_DAYS * DAY_MS },
   week: { range: "day", maxAge: HOURLY_DAYS * DAY_MS },
-  day: { range: "hour", maxAge: 2 * HOUR_MS },
+  day: { range: "hour", maxAge: MINUTELY_HOURS * HOUR_MS },
 };
 
 function localDateKey(d) {
@@ -244,10 +250,16 @@ function hourlyByLocalDay() {
 
 // Day totals come from the hourly buckets (summed into *local* days) while the
 // rpi still keeps them; older days fall back to the daily doc, which is
-// pre-bucketed in the deployment's timezone rather than the viewer's.
+// pre-bucketed in the deployment's timezone rather than the viewer's. Days the
+// hourly doc doesn't actually reach fall back too, so an rpi publishing a
+// shorter window than we assume here reads as slightly-off days rather than
+// zeros. (A day with no usage is absent from both docs, and 0 either way.)
 function dayGallons(day, byDay, now) {
   const key = localDateKey(day);
-  if (now - day.getTime() < HOURLY_DAYS * DAY_MS) return byDay.get(key) || 0;
+  if (now - day.getTime() < HOURLY_DAYS * DAY_MS) {
+    const gallons = byDay.get(key);
+    if (gallons !== undefined) return gallons;
+  }
   return (usageDocs.daily || {})[key] || 0;
 }
 
