@@ -20,6 +20,7 @@ import {
 import {
   getFirestore,
   doc,
+  getDoc,
   onSnapshot,
   setDoc,
   serverTimestamp,
@@ -186,6 +187,16 @@ const DAILY_DAYS = 1080;
 // minutely/hourly buckets are keyed by epoch-sec string; daily by "YYYY-MM-DD"
 // in the deployment's configured timezone (see USAGE_TIMEZONE on the rpi).
 const usageDocs = { minutely: null, hourly: null, daily: null };
+
+// Minute detail older than the live minutely doc lives in one archive document
+// per UTC day (usage/minutely-YYYY-MM-DD, see usagearchive.go). Those aren't
+// subscribed — we fetch one only when a zoom actually needs it — so retention
+// there costs nothing until someone looks. usage/minutely-index says which days
+// exist and whether they're final; the rest are cached here once fetched.
+let usageArchiveDays = {}; // UTC day -> final? (absent = no archive)
+const usageArchives = new Map(); // UTC day -> {buckets, fetchedAt}
+const usageArchiveFetches = new Set(); // UTC days with a fetch in flight
+let usagePending = false; // this render is missing an archive it asked for
 let usageRange = "day";
 let usageAnchor = null; // exclusive end of the plotted window; null = live
 let usageZoomStack = []; // views we zoomed in from: [{range, anchor}]
@@ -201,7 +212,8 @@ const USAGE_RANGES = {
 
 // Clicking a bar opens the range that shows that bar's period in finer bars.
 // The rollups don't go back forever, so bars older than the buckets their
-// target range would need don't zoom.
+// target range would need don't zoom. (The hour view is the exception: its
+// minute buckets can also come from an archive — see usageZoomTarget.)
 const USAGE_ZOOM = {
   year: { range: "week", maxAge: DAILY_DAYS * DAY_MS },
   month: { range: "day", maxAge: HOURLY_DAYS * DAY_MS },
@@ -212,6 +224,53 @@ const USAGE_ZOOM = {
 function localDateKey(d) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Archives are partitioned by UTC day (they hold epoch-keyed buckets, so the
+// partition is storage, not a calendar anyone sees).
+function utcDayKey(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+// Minute buckets for an hour window: the live doc while it still reaches back
+// that far, otherwise that UTC day's archive — fetched on demand, and refetched
+// while the day is still filling. Returns {} (and marks the render pending)
+// until the fetch lands.
+function minuteBuckets(windowStart) {
+  if (Date.now() - windowStart.getTime() <= MINUTELY_HOURS * HOUR_MS) {
+    return usageDocs.minutely || {};
+  }
+
+  const day = utcDayKey(windowStart);
+  const entry = usageArchives.get(day);
+  // A final day never changes again; today's archive (and a failed fetch) goes
+  // stale after a minute.
+  const stale = !entry
+    || (usageArchiveDays[day] !== true && Date.now() - entry.fetchedAt > MINUTE_MS);
+  if (stale && !usageArchiveFetches.has(day)) fetchUsageArchive(day);
+  if (!entry) usagePending = true;
+  return entry ? entry.buckets : {};
+}
+
+function fetchUsageArchive(day) {
+  usageArchiveFetches.add(day);
+  getDoc(doc(db, "usage", `minutely-${day}`))
+    .then((snap) => {
+      usageArchives.set(day, {
+        buckets: snap.exists() ? snap.data().buckets || {} : {},
+        fetchedAt: Date.now(),
+      });
+    })
+    .catch((err) => {
+      // Cache the failure too, so a broken fetch retries on the stale timer
+      // rather than on every render.
+      console.error(`usage/minutely-${day} fetch`, err);
+      usageArchives.set(day, { buckets: {}, fetchedAt: Date.now() });
+    })
+    .finally(() => {
+      usageArchiveFetches.delete(day);
+      renderUsage();
+    });
 }
 
 // Bucket math in the browser's zone: minute/hour buckets align to the epoch
@@ -269,13 +328,14 @@ function usageBars(range) {
   const end = usageWindowEnd(range);
   const now = Date.now();
   const byDay = unit === "day" || unit === "week" ? hourlyByLocalDay() : null;
+  const minutes = unit === "minute" ? minuteBuckets(addBuckets(end, unit, -count)) : null;
   const bars = [];
 
   for (let i = count; i >= 1; i--) {
     const start = addBuckets(end, unit, -i);
     let gallons;
     if (unit === "minute" || unit === "hour") {
-      const src = (unit === "minute" ? usageDocs.minutely : usageDocs.hourly) || {};
+      const src = (unit === "minute" ? minutes : usageDocs.hourly) || {};
       gallons = src[String(start.getTime() / 1000)] || 0;
     } else if (unit === "day") {
       gallons = dayGallons(start, byDay, now);
@@ -297,8 +357,13 @@ function usageZoomTarget(bar) {
   const zoom = USAGE_ZOOM[usageRange];
   if (!zoom) return null;
   const age = Date.now() - bar.start.getTime();
-  if (age < 0 || age > zoom.maxAge) return null;
-  return zoom.range;
+  if (age < 0) return null;
+  // Minute detail outside the live doc's reach is fine as long as that UTC day
+  // was archived, so the hour view asks the index rather than the clock.
+  if (zoom.range === "hour" && age > zoom.maxAge) {
+    return utcDayKey(bar.start) in usageArchiveDays ? zoom.range : null;
+  }
+  return age > zoom.maxAge ? null : zoom.range;
 }
 
 function zoomIntoBar(bar) {
@@ -419,10 +484,15 @@ function renderUsage() {
   els.usageBack.hidden = !zoomedFrom;
   if (zoomedFrom) els.usageBack.textContent = `← ${USAGE_RANGES[zoomedFrom.range].name}`;
 
+  usagePending = false;
   const bars = usageBars(usageRange);
   const total = bars.reduce((s, b) => s + b.gallons, 0);
   const totalText = total >= 100 ? Math.round(total).toLocaleString() : total.toFixed(1);
-  els.usageTotal.textContent = `${totalText} gal ${usageWindowLabel(bars)}`;
+  // usagePending means usageBars is waiting on an archive fetch; the bars are
+  // all zero until it lands, so don't report that as a real total.
+  els.usageTotal.textContent = usagePending
+    ? `Loading ${usageWindowLabel(bars)}…`
+    : `${totalText} gal ${usageWindowLabel(bars)}`;
 
   const W = 360, H = 160;
   const pad = { left: 30, right: 4, top: 8, bottom: 18 };
@@ -539,6 +609,14 @@ function subscribeUsage() {
       }, (err) => console.error(`usage/${name} listener`, err))
     );
   }
+  // Which UTC days have a minute-level archive. Tiny, and it changes about
+  // once a day — the archives themselves are fetched on demand, never watched.
+  usageUnsubs.push(
+    onSnapshot(doc(db, "usage", "minutely-index"), (snap) => {
+      usageArchiveDays = snap.exists() ? snap.data().days || {} : {};
+      renderUsage();
+    }, (err) => console.error("usage/minutely-index listener", err))
+  );
 }
 
 function unsubscribeUsage() {
@@ -546,6 +624,8 @@ function unsubscribeUsage() {
   usageUnsubs = [];
   usageAnchor = null;
   usageZoomStack = [];
+  usageArchiveDays = {};
+  usageArchives.clear();
   els.usage.hidden = true;
 }
 

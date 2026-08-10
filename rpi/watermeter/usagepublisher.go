@@ -41,6 +41,10 @@ type usagePublisher struct {
 	timezone string
 	lastMu   sync.Mutex
 	last     map[string]string // doc name -> fingerprint of last written buckets
+	// Archived UTC day -> whether that day is closed and final. Loaded from
+	// usage/minutely-index on first use; see usagearchive.go. Only touched from
+	// the publisher goroutine.
+	archives map[string]bool
 }
 
 func StartUsagePublisher(
@@ -100,6 +104,9 @@ func (up *usagePublisher) publishAll(includeDaily bool) {
 			// cadence, roll the older days up incrementally instead.
 			log.Printf("usage publisher: daily rollup took %s", took)
 		}
+		if err := up.publishArchives(); err != nil {
+			log.Printf("usage publisher (archives): %v", err)
+		}
 	}
 }
 
@@ -151,23 +158,32 @@ func (up *usagePublisher) publish(docName string, trunc string, window string) e
 	}
 	defer rows.Close()
 
+	buckets, fingerprint, err := scanBuckets(rows)
+	if err != nil {
+		return fmt.Errorf("reading %s buckets: %w", docName, err)
+	}
+
+	return up.write(docName, buckets, fingerprint)
+}
+
+// scanBuckets drains an epoch-keyed (bucket, count) result set into the map we
+// publish, plus the fingerprint write() uses to skip unchanged documents.
+func scanBuckets(rows *sql.Rows) (map[string]float64, string, error) {
 	buckets := map[string]float64{}
 	fingerprint := ""
 	for rows.Next() {
 		var bucket int64
 		var count int
 		if err := rows.Scan(&bucket, &count); err != nil {
-			return fmt.Errorf("scanning %s bucket: %w", docName, err)
+			return nil, "", fmt.Errorf("scanning bucket: %w", err)
 		}
-		gallons := float64(count) * 0.1
-		buckets[strconv.FormatInt(bucket, 10)] = gallons
+		buckets[strconv.FormatInt(bucket, 10)] = float64(count) * 0.1
 		fingerprint += fmt.Sprintf("%d:%d;", bucket, count)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("reading %s buckets: %w", docName, err)
+		return nil, "", err
 	}
-
-	return up.write(docName, buckets, fingerprint)
+	return buckets, fingerprint, nil
 }
 
 // write publishes a bucket doc, skipping the write when nothing changed.
@@ -191,4 +207,13 @@ func (up *usagePublisher) write(docName string, buckets map[string]float64, fing
 	up.lastMu.Unlock()
 
 	return nil
+}
+
+// forget drops a document's fingerprint. Closed archive days are written once
+// and never rebuilt, so keeping theirs would grow this map for as long as the
+// service runs — and a day's fingerprint is as long as the day was busy.
+func (up *usagePublisher) forget(docName string) {
+	up.lastMu.Lock()
+	delete(up.last, docName)
+	up.lastMu.Unlock()
 }
