@@ -59,6 +59,7 @@ const els = {
   usage: document.getElementById("usage"),
   usageRanges: document.getElementById("usage-ranges"),
   usageTotal: document.getElementById("usage-total"),
+  usageBack: document.getElementById("usage-back"),
   usageChart: document.getElementById("usage-chart"),
   usageTooltip: document.getElementById("usage-tooltip"),
   notifications: document.getElementById("notifications"),
@@ -160,24 +161,46 @@ async function setLevel(level) {
 
 // ---- Usage chart -----------------------------------------------------------
 //
-// The rpi rolls the pulse log up into two Firestore docs (usage/minutely and
-// usage/hourly) whose buckets are keyed by bucket-start Unix seconds (UTC).
-// Everything time-zone-ish happens here in the browser's local zone: the day
-// bars for week/month are grouped by *local* calendar day.
+// The rpi rolls the pulse log up into three Firestore docs (usage/minutely,
+// usage/hourly, usage/daily). Everything time-zone-ish happens here in the
+// browser's local zone: the day bars for week/month are grouped by *local*
+// calendar day.
+//
+// A view is a range (how wide a bar is, and how many) plus the window's end.
+// Live views end now; clicking a bar zooms into the period that bar covers by
+// pinning the end to the bar's end (usageAnchor) and switching to the next
+// finer range — a day bar in the week view opens the day view for that day.
+// Back pops the stack of views we zoomed in from.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const MINUTE_MS = 60000, HOUR_MS = 60 * MINUTE_MS, DAY_MS = 24 * HOUR_MS;
+// The rpi keeps ~32 days of hourly buckets — stay a little inside that.
+const HOURLY_DAYS = 30;
+
 // minutely/hourly buckets are keyed by epoch-sec string; daily by "YYYY-MM-DD"
 // in the deployment's configured timezone (see USAGE_TIMEZONE on the rpi).
 const usageDocs = { minutely: null, hourly: null, daily: null };
 let usageRange = "day";
+let usageAnchor = null; // exclusive end of the plotted window; null = live
+let usageZoomStack = []; // views we zoomed in from: [{range, anchor}]
 let usageUnsubs = [];
 
 const USAGE_RANGES = {
-  hour: { label: "last hour" },
-  day: { label: "last 24 hours" },
-  week: { label: "last 7 days" },
-  month: { label: "last 30 days" },
-  year: { label: "last year" },
+  hour: { name: "Hour", label: "last hour", unit: "minute", count: 60 },
+  day: { name: "Day", label: "last 24 hours", unit: "hour", count: 24 },
+  week: { name: "Week", label: "last 7 days", unit: "day", count: 7 },
+  month: { name: "Month", label: "last 30 days", unit: "day", count: 30 },
+  year: { name: "Year", label: "last year", unit: "week", count: 52 },
+};
+
+// Clicking a bar opens the range that shows that bar's period in finer bars.
+// The rpi only keeps ~2 h of minutely and ~32 days of hourly buckets (see
+// usagepublisher.go), so bars older than their target's data don't zoom.
+const USAGE_ZOOM = {
+  year: { range: "week", maxAge: 370 * DAY_MS },
+  month: { range: "day", maxAge: HOURLY_DAYS * DAY_MS },
+  week: { range: "day", maxAge: HOURLY_DAYS * DAY_MS },
+  day: { range: "hour", maxAge: 2 * HOUR_MS },
 };
 
 function localDateKey(d) {
@@ -185,60 +208,131 @@ function localDateKey(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Build the bar list for the selected range: [{start: Date, gallons, label}].
+// Bucket math in the browser's zone: minute/hour buckets align to the epoch
+// (that's how the rpi keys them), day/week buckets to local midnight.
+function bucketStart(d, unit) {
+  if (unit === "minute") return new Date(Math.floor(d.getTime() / MINUTE_MS) * MINUTE_MS);
+  if (unit === "hour") return new Date(Math.floor(d.getTime() / HOUR_MS) * HOUR_MS);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function addBuckets(d, unit, n) {
+  if (unit === "minute") return new Date(d.getTime() + n * MINUTE_MS);
+  if (unit === "hour") return new Date(d.getTime() + n * HOUR_MS);
+  const days = unit === "week" ? 7 * n : n;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
+}
+
+// The exclusive end of the plotted window: the anchor when zoomed in, else the
+// end of the in-progress bucket, so the current partial bar is included. Weekly
+// bars aren't aligned to a calendar week — the most recent one ends today.
+function usageWindowEnd(range) {
+  if (usageAnchor) return usageAnchor;
+  const unit = USAGE_RANGES[range].unit;
+  const step = unit === "week" ? "day" : unit;
+  return addBuckets(bucketStart(new Date(), step), step, 1);
+}
+
+function hourlyByLocalDay() {
+  const byDay = new Map();
+  for (const [secStr, gal] of Object.entries(usageDocs.hourly || {})) {
+    const key = localDateKey(new Date(Number(secStr) * 1000));
+    byDay.set(key, (byDay.get(key) || 0) + gal);
+  }
+  return byDay;
+}
+
+// Day totals come from the hourly buckets (summed into *local* days) while the
+// rpi still keeps them; older days fall back to the daily doc, which is
+// pre-bucketed in the deployment's timezone rather than the viewer's.
+function dayGallons(day, byDay, now) {
+  const key = localDateKey(day);
+  if (now - day.getTime() < HOURLY_DAYS * DAY_MS) return byDay.get(key) || 0;
+  return (usageDocs.daily || {})[key] || 0;
+}
+
+// Build the bar list for the current view: [{start: Date, gallons}].
 function usageBars(range) {
+  const { unit, count } = USAGE_RANGES[range];
+  const end = usageWindowEnd(range);
   const now = Date.now();
+  const byDay = unit === "day" || unit === "week" ? hourlyByLocalDay() : null;
   const bars = [];
 
-  if (range === "hour") {
-    const src = usageDocs.minutely || {};
-    const curMinute = Math.floor(now / 60000) * 60;
-    for (let i = 59; i >= 0; i--) {
-      const sec = curMinute - i * 60;
-      bars.push({ start: new Date(sec * 1000), gallons: src[String(sec)] || 0 });
-    }
-  } else if (range === "day") {
-    const src = usageDocs.hourly || {};
-    const curHour = Math.floor(now / 3600000) * 3600;
-    for (let i = 23; i >= 0; i--) {
-      const sec = curHour - i * 3600;
-      bars.push({ start: new Date(sec * 1000), gallons: src[String(sec)] || 0 });
-    }
-  } else if (range === "year") {
-    // 52 weekly bars, each summing 7 daily buckets (most recent week ends today).
-    const src = usageDocs.daily || {};
-    const today = new Date();
-    for (let w = 51; w >= 0; w--) {
-      const start = new Date(
-        today.getFullYear(), today.getMonth(), today.getDate() - (w * 7 + 6)
-      );
-      let sum = 0;
+  for (let i = count; i >= 1; i--) {
+    const start = addBuckets(end, unit, -i);
+    let gallons;
+    if (unit === "minute" || unit === "hour") {
+      const src = (unit === "minute" ? usageDocs.minutely : usageDocs.hourly) || {};
+      gallons = src[String(start.getTime() / 1000)] || 0;
+    } else if (unit === "day") {
+      gallons = dayGallons(start, byDay, now);
+    } else {
+      gallons = 0;
       for (let d = 0; d < 7; d++) {
-        const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
-        sum += src[localDateKey(day)] || 0;
+        gallons += dayGallons(addBuckets(start, "day", d), byDay, now);
       }
-      bars.push({ start, gallons: sum });
     }
-  } else {
-    // week/month: sum hourly buckets into local calendar days.
-    const days = range === "week" ? 7 : 30;
-    const src = usageDocs.hourly || {};
-    const byDay = new Map();
-    for (const [secStr, gal] of Object.entries(src)) {
-      const d = new Date(Number(secStr) * 1000);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      byDay.set(key, (byDay.get(key) || 0) + gal);
-    }
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now - i * 86400000);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      bars.push({
-        start: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
-        gallons: byDay.get(key) || 0,
-      });
-    }
+    bars.push({ start, gallons });
   }
   return bars;
+}
+
+// The range a click on this bar opens, or null if it doesn't zoom: the finest
+// range doesn't, nor do bars older than their target's data or not yet started
+// (a zoomed-in view of today plots the rest of the day as empty bars).
+function usageZoomTarget(bar) {
+  const zoom = USAGE_ZOOM[usageRange];
+  if (!zoom) return null;
+  const age = Date.now() - bar.start.getTime();
+  if (age < 0 || age > zoom.maxAge) return null;
+  return zoom.range;
+}
+
+function zoomIntoBar(bar) {
+  const range = usageZoomTarget(bar);
+  if (!range) return;
+  // End the zoomed view at this bar's end, snapped to the finer range's own
+  // buckets: in a half-hour-offset zone (IST, say) local midnight isn't on an
+  // epoch hour, and unsnapped we'd look up hourly keys that can't exist.
+  const end = addBuckets(bar.start, USAGE_RANGES[usageRange].unit, 1);
+  const anchor = bucketStart(end, USAGE_RANGES[range].unit);
+  usageZoomStack.push({ range: usageRange, anchor: usageAnchor });
+  usageRange = range;
+  usageAnchor = anchor;
+  renderUsage();
+}
+
+function zoomOut() {
+  const prev = usageZoomStack.pop();
+  if (!prev) return;
+  usageRange = prev.range;
+  usageAnchor = prev.anchor;
+  renderUsage();
+}
+
+// Describes the plotted window for the total line.
+function usageWindowLabel(bars) {
+  if (!usageAnchor) return `in the ${USAGE_RANGES[usageRange].label}`;
+
+  const first = bars[0].start;
+  const last = bars[bars.length - 1].start;
+  // Spell out the year on older windows — "Aug 12" alone is ambiguous there.
+  const year = first.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
+  const day = (d) =>
+    d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year });
+  if (usageRange === "hour") {
+    // Buckets are epoch hours, so in a half-hour-offset zone they start at :30.
+    const hour = (d) => d.toLocaleTimeString([], d.getMinutes()
+      ? { hour: "numeric", minute: "2-digit" } : { hour: "numeric" });
+    return `from ${hour(first)} to ${hour(new Date(first.getTime() + HOUR_MS))} on ${day(first)}`;
+  }
+  // Name the day from the middle of the window: its edges can sit in the
+  // neighbouring day once the anchor is snapped to an epoch hour.
+  if (usageRange === "day") return `on ${day(bars[Math.floor(bars.length / 2)].start)}`;
+  const short = (d, y) => d.toLocaleDateString([], { month: "short", day: "numeric", year: y });
+  const firstYear = first.getFullYear() === last.getFullYear() ? undefined : year;
+  return `from ${short(first, firstYear)} to ${short(last, year)}`;
 }
 
 function usageBarLabel(range, start) {
@@ -306,11 +400,17 @@ function renderUsage() {
   svg.textContent = "";
   els.usageTooltip.hidden = true;
 
+  for (const b of els.usageRanges.querySelectorAll("button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.range === usageRange));
+  }
+  const zoomedFrom = usageZoomStack[usageZoomStack.length - 1];
+  els.usageBack.hidden = !zoomedFrom;
+  if (zoomedFrom) els.usageBack.textContent = `← ${USAGE_RANGES[zoomedFrom.range].name}`;
+
   const bars = usageBars(usageRange);
   const total = bars.reduce((s, b) => s + b.gallons, 0);
   const totalText = total >= 100 ? Math.round(total).toLocaleString() : total.toFixed(1);
-  els.usageTotal.textContent =
-    `${totalText} gal in the ${USAGE_RANGES[usageRange].label}`;
+  els.usageTotal.textContent = `${totalText} gal ${usageWindowLabel(bars)}`;
 
   const W = 360, H = 160;
   const pad = { left: 30, right: 4, top: 8, bottom: 18 };
@@ -369,12 +469,15 @@ function renderUsage() {
     }
 
     // full-height transparent hit target, bigger than the mark
+    const zoomTo = usageZoomTarget(b);
     const hit = svgEl("rect", {
       x: pad.left + (plotW / bars.length) * i, y: pad.top,
-      width: plotW / bars.length, height: plotH, class: "usage__hit",
+      width: plotW / bars.length, height: plotH,
+      class: zoomTo ? "usage__hit usage__hit--zoom" : "usage__hit",
     });
     hit.addEventListener("pointerenter", () => showUsageTooltip(b, hit));
     hit.addEventListener("pointerleave", () => { els.usageTooltip.hidden = true; });
+    if (zoomTo) hit.addEventListener("click", () => zoomIntoBar(b));
     svg.appendChild(hit);
   });
 }
@@ -401,15 +504,17 @@ function showUsageTooltip(bar, hitEl) {
   tip.style.left = `${left}px`;
 }
 
+// Picking a range always goes back to the live (trailing) view of it.
 els.usageRanges.addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-range]");
   if (!btn) return;
   usageRange = btn.dataset.range;
-  for (const b of els.usageRanges.querySelectorAll("button")) {
-    b.setAttribute("aria-pressed", String(b === btn));
-  }
+  usageAnchor = null;
+  usageZoomStack = [];
   renderUsage();
 });
+
+els.usageBack.addEventListener("click", zoomOut);
 
 function subscribeUsage() {
   if (usageUnsubs.length) return;
@@ -427,6 +532,8 @@ function subscribeUsage() {
 function unsubscribeUsage() {
   for (const u of usageUnsubs) u();
   usageUnsubs = [];
+  usageAnchor = null;
+  usageZoomStack = [];
   els.usage.hidden = true;
 }
 

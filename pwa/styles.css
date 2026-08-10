@@ -181,8 +181,31 @@ h1 {
   color: var(--text);
 }
 
+.usage__subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.usage__back {
+  flex: none;
+  border: 0;
+  background: #1c3a54;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.usage__back[hidden] {
+  display: none;
+}
+
 .usage__total {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 0.85rem;
 }
 
@@ -206,6 +229,11 @@ h1 {
 
 .usage__hit:hover {
   fill: rgba(234, 242, 248, 0.06);
+}
+
+/* Bars that can be zoomed into (a finer range exists and still has data). */
+.usage__hit--zoom {
+  cursor: pointer;
 }
 
 .usage__grid {
