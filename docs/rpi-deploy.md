@@ -27,7 +27,7 @@ From the `watermeter` repo root on your workstation (replace `<pi-address>`
 with your Pi's hostname or IP):
 
 ```sh
-git checkout master && git pull       # be on the code you mean to ship
+git checkout main && git pull         # be on the code you mean to ship
 ./dev/deploy-rpi.sh <pi-address>      # or: make deploy-rpi pi=<pi-address>
 ```
 
