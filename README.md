@@ -70,10 +70,12 @@ chapter 2 (the button wiring).
 - **Push** (`watermeter/push.go`) — fans a data-only FCM message out to every
   token in the `pushTokens` collection, pruning tokens FCM reports dead.
 - **Usage publisher** (`watermeter/usagepublisher.go`) — every minute, rolls the
-  Postgres pulse log up into `usage/minutely` (last ~2 h) and `usage/hourly`
-  (last ~32 days) Firestore docs, keyed by bucket-start Unix seconds, plus
-  `usage/daily` (last ~370 days, keyed by date in the configured timezone) every
-  15 minutes; skips the write when nothing changed. The PWA charts from these.
+  Postgres pulse log up into `usage/minutely` (last ~6 h) and `usage/hourly`
+  (last ~90 days) Firestore docs, keyed by bucket-start Unix seconds, plus
+  `usage/daily` (last ~3 years, keyed by date in the configured timezone) every
+  15 minutes; skips the write when nothing changed. The PWA charts from these,
+  and mirrors the windows to decide how far back a bar can be zoomed into —
+  widening a window means changing both sides.
 - **Valve** (`watermeter/iot/valve.go`) — drives a two-relay motorized valve;
   relays are active-low and held for 10 s per actuation (mutex-guarded).
 - Prometheus metrics are served at `:8000/metrics`.
@@ -105,7 +107,7 @@ screen).
    week view opens the day view for that day, an hour in the day view opens
    that hour — and "← Back" returns to where you zoomed in from (picking a
    range button goes back to its live, trailing view). A bar only zooms while
-   the finer buckets behind it still exist: ~2 h of minutely and ~32 days of
+   the finer buckets behind it still exist: ~6 h of minutely and ~90 days of
    hourly data.
 
 ## Configuration
@@ -173,8 +175,9 @@ create table meter (
    recorded_at timestamp not null
 );
 
--- The usage publisher aggregates ~32 days of pulses every minute; this index
--- keeps that query off a full table scan.
+-- The usage publisher aggregates ~90 days of pulses every minute (and ~3 years
+-- every 15 minutes, for the daily rollup); this index keeps those queries off a
+-- full table scan.
 create index if not exists meter_recorded_at_idx on meter (recorded_at);
 ```
 
