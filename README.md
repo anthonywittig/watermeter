@@ -76,6 +76,13 @@ chapter 2 (the button wiring).
   15 minutes; skips the write when nothing changed. The PWA charts from these,
   and mirrors the windows to decide how far back a bar can be zoomed into —
   widening a window means changing both sides.
+- **Usage archives** (`watermeter/usagearchive.go`) — on the same 15-minute
+  tick, writes one document per UTC day of minute buckets
+  (`usage/minutely-YYYY-MM-DD`), plus `usage/minutely-index` listing which days
+  exist and which are final, backfilling a few days per run up to ~3 years back.
+  Nothing subscribes to these: the PWA fetches one on demand when you zoom into
+  an hour the live doc no longer covers, so minute-level history costs nothing
+  until someone looks at it.
 - **Valve** (`watermeter/iot/valve.go`) — drives a two-relay motorized valve;
   relays are active-low and held for 10 s per actuation (mutex-guarded).
 - Prometheus metrics are served at `:8000/metrics`.
@@ -106,9 +113,11 @@ screen).
    into weeks. Clicking a bar zooms into the period it covers — a day in the
    week view opens the day view for that day, an hour in the day view opens
    that hour — and "← Back" returns to where you zoomed in from (picking a
-   range button goes back to its live, trailing view). A bar only zooms while
-   the finer buckets behind it still exist: ~6 h of minutely and ~90 days of
-   hourly data.
+   range button goes back to its live, trailing view). Day bars zoom while the
+   hourly buckets behind them still exist (~90 days); hour bars zoom whenever
+   the minute data exists — the live ~6 h window, or any UTC day with an
+   archive — fetching that day's archive on demand and showing "Loading…" until
+   it lands.
 
 ## Configuration
 
