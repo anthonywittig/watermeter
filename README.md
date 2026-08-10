@@ -71,8 +71,9 @@ chapter 2 (the button wiring).
   token in the `pushTokens` collection, pruning tokens FCM reports dead.
 - **Usage publisher** (`watermeter/usagepublisher.go`) — every minute, rolls the
   Postgres pulse log up into `usage/minutely` (last ~2 h) and `usage/hourly`
-  (last ~32 days) Firestore docs, keyed by bucket-start Unix seconds; skips the
-  write when nothing changed. The PWA charts from these.
+  (last ~32 days) Firestore docs, keyed by bucket-start Unix seconds, plus
+  `usage/daily` (last ~370 days, keyed by date in the configured timezone) every
+  15 minutes; skips the write when nothing changed. The PWA charts from these.
 - **Valve** (`watermeter/iot/valve.go`) — drives a two-relay motorized valve;
   relays are active-low and held for 10 s per actuation (mutex-guarded).
 - Prometheus metrics are served at `:8000/metrics`.
@@ -96,10 +97,16 @@ screen).
    push and shows the notification; tapping it opens the app on the valve
    control. There's no separate `firebase-messaging-sw.js` — the one service
    worker handles the app shell *and* push.
-4. **Usage chart.** A bar chart of water usage with hour / day / week / month
-   ranges, live-updating from the `usage/*` docs. Minute bars for the hour
+4. **Usage chart.** A bar chart of water usage with hour / day / week / month /
+   year ranges, live-updating from the `usage/*` docs. Minute bars for the hour
    view, hour bars for the day view; week/month aggregate the hourly buckets
-   into calendar days in the viewer's own timezone.
+   into calendar days in the viewer's own timezone, and the year view sums days
+   into weeks. Clicking a bar zooms into the period it covers — a day in the
+   week view opens the day view for that day, an hour in the day view opens
+   that hour — and "← Back" returns to where you zoomed in from (picking a
+   range button goes back to its live, trailing view). A bar only zooms while
+   the finer buckets behind it still exist: ~2 h of minutely and ~32 days of
+   hourly data.
 
 ## Configuration
 
