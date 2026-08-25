@@ -3,6 +3,7 @@ package watermeter
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -37,10 +38,50 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, *io
 	pulse := make(chan time.Time, 50)
 	wg.Add(1)
 
+	// GPIO config has been observed to get partially reset while the process
+	// runs (pin modes back to input, pull-ups cleared) — cause unknown, likely
+	// an electrical/firmware upset. Re-asserting our config is a cheap,
+	// idempotent register write, so do it periodically to self-heal — but log
+	// any drift found first, so upsets leave a trail instead of being
+	// silently repaired.
+	const reassertEvery = 60 * time.Second
+	expectedModes := map[uint8]string{
+		uint8(led): "OUT", uint8(meter): "IN", uint8(valveOpen): "OUT", uint8(valveClose): "OUT",
+	}
+	regs, err := openGPIORegs()
+	if err != nil {
+		log.Printf("gpio drift detection unavailable (reassert still active): %v", err)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tick := time.NewTicker(reassertEvery)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if regs != nil {
+					if drift := gpioModeDrift(regs, expectedModes); drift != "" {
+						log.Printf("gpio config drift detected (repairing): %s", drift)
+					}
+				}
+				meter.Input()
+				meter.PullUp()
+				led.Output()
+				// Valve pins are re-asserted under the valve's lock so we
+				// can't fight an in-progress actuation.
+				valve.Reassert()
+			}
+		}
+	}()
+
 	go func() {
 		defer wg.Done()
 
 		lastState := rpio.Low
+		droppedPulses := 0
 		for {
 			select {
 			case <-ctx.Done():
@@ -53,7 +94,15 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, *io
 				if state == rpio.Low && state != lastState {
 					now := time.Now().UTC()
 					fmt.Printf("wm pulse @ %s\n", now.Format(time.RFC3339))
-					pulse <- now
+					// Never block the detector on a slow consumer: dropping a
+					// pulse loses 0.1 gal of history; blocking here would stop
+					// pulse detection entirely.
+					select {
+					case pulse <- now:
+					default:
+						droppedPulses++
+						fmt.Printf("pulse channel full, dropped pulse (%d dropped total)\n", droppedPulses)
+					}
 					led.Toggle()
 				}
 				lastState = state
