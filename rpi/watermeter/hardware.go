@@ -3,6 +3,7 @@ package watermeter
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -40,8 +41,17 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, *io
 	// GPIO config has been observed to get partially reset while the process
 	// runs (pin modes back to input, pull-ups cleared) — cause unknown, likely
 	// an electrical/firmware upset. Re-asserting our config is a cheap,
-	// idempotent register write, so do it periodically to self-heal.
+	// idempotent register write, so do it periodically to self-heal — but log
+	// any drift found first, so upsets leave a trail instead of being
+	// silently repaired.
 	const reassertEvery = 60 * time.Second
+	expectedModes := map[uint8]string{
+		uint8(led): "OUT", uint8(meter): "IN", uint8(valveOpen): "OUT", uint8(valveClose): "OUT",
+	}
+	regs, err := openGPIORegs()
+	if err != nil {
+		log.Printf("gpio drift detection unavailable (reassert still active): %v", err)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -52,6 +62,11 @@ func StartHardware(ctx context.Context, wg *sync.WaitGroup) (chan time.Time, *io
 			case <-ctx.Done():
 				return
 			case <-tick.C:
+				if regs != nil {
+					if drift := gpioModeDrift(regs, expectedModes); drift != "" {
+						log.Printf("gpio config drift detected (repairing): %s", drift)
+					}
+				}
 				meter.Input()
 				meter.PullUp()
 				led.Output()
