@@ -30,6 +30,9 @@ Read the README for the full architecture before making changes.
   (~20 s water interruption) — don't deploy to the Pi gratuitously.
 - `./dev/render-config.sh && firebase deploy` — PWA hosting + Firestore rules.
   Render first; the deployment files are generated and gitignored.
+- `./dev/rpi-health.sh <pi-address>` — read-only remote diagnostic: service,
+  clock, pulse recency (journal/DB/prometheus), and GPIO pin state. Start here
+  when datapoints go missing; safe to run any time.
 
 There is no test suite of substance yet; prefer adding tests next to the code
 you touch.
