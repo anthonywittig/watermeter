@@ -38,6 +38,22 @@ func NewValve(openRelay rpio.Pin, closeRelay rpio.Pin) (*Valve, error) {
 	return v, nil
 }
 
+// Reassert restores the relay pins' idle configuration (output mode, held
+// high = relays off). GPIO config has been observed to get partially reset
+// while the process runs; callers re-run this periodically. Takes the lock so
+// it can't interrupt an in-progress actuation — after an actuation the idle
+// state is exactly what we set here. Latches are written before the pin is
+// (re)made an output so a reset pin can't glitch a relay on.
+func (v *Valve) Reassert() {
+	v.lock.Lock()
+	defer v.lock.Unlock()
+
+	v.openRelay.High()
+	v.closeRelay.High()
+	v.openRelay.Output()
+	v.closeRelay.Output()
+}
+
 func (v *Valve) Close() error {
 	v.lock.Lock()
 	defer v.lock.Unlock()

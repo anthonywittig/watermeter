@@ -19,9 +19,10 @@ func HandlePulses(
 	db *sql.DB,
 	gcpProjectID string,
 	gcpCredentialsFile string,
+	extraHandlers ...PulseHandler,
 ) error {
 	handlers := []PulseHandler{
-		NewDatabaseRecorder(db),
+		NewDatabaseRecorder(ctx, db),
 		NewPrometheusRecorder(),
 	}
 
@@ -30,6 +31,8 @@ func HandlePulses(
 	} else {
 		handlers = append(handlers, g)
 	}
+
+	handlers = append(handlers, extraHandlers...)
 
 	wg.Add(1)
 	go func() {

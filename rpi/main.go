@@ -6,12 +6,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	// pprof registers /debug/pprof/* on the default mux (served on :8000,
+	// LAN-only) so a wedged goroutine can be diagnosed without killing the
+	// process — a restart cycles the physical valve.
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"github.com/anthonywittig/watermeter/watermeter"
@@ -86,17 +92,6 @@ func main() {
 
 	watermeter.StartUsagePublisher(ctx, wg, db, fsClient, os.Getenv("USAGE_TIMEZONE"))
 
-	if err := pulselisteners.HandlePulses(
-		ctx,
-		pulse,
-		wg,
-		db,
-		os.Getenv("FIREBASE_PROJECT_ID"),
-		os.Getenv("FIREBASE_CREDENTIALS"),
-	); err != nil {
-		log.Fatal(err)
-	}
-
 	notifier, err := watermeter.NewPushNotifier(
 		ctx,
 		fsClient,
@@ -107,9 +102,38 @@ func main() {
 		log.Fatal(err)
 	}
 
+	stallMonitor := watermeter.StartStallMonitor(ctx, wg, db, notifier, stallThresholdFromEnv())
+
+	if err := pulselisteners.HandlePulses(
+		ctx,
+		pulse,
+		wg,
+		db,
+		os.Getenv("FIREBASE_PROJECT_ID"),
+		os.Getenv("FIREBASE_CREDENTIALS"),
+		stallMonitor,
+	); err != nil {
+		log.Fatal(err)
+	}
+
 	watermeter.StartFlowMonitor(ctx, wg, db, fsClient, notifier, reportingValve)
 
 	wg.Wait()
+}
+
+// stallThresholdFromEnv reads STALL_ALERT_HOURS (optional); zero means "use
+// the built-in default".
+func stallThresholdFromEnv() time.Duration {
+	raw := os.Getenv("STALL_ALERT_HOURS")
+	if raw == "" {
+		return 0
+	}
+	hours, err := strconv.ParseFloat(raw, 64)
+	if err != nil || hours <= 0 {
+		log.Printf("ignoring invalid STALL_ALERT_HOURS %q", raw)
+		return 0
+	}
+	return time.Duration(hours * float64(time.Hour))
 }
 
 func handlePrometheus() {

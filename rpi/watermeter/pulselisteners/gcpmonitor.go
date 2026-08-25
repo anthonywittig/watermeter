@@ -15,6 +15,11 @@ import (
 	monitoringpb "google.golang.org/genproto/googleapis/monitoring/v3"
 )
 
+// gcpWriteTimeout bounds each CreateTimeSeries call; all handlers share one
+// goroutine, so a hung RPC would otherwise stall every pulse listener
+// indefinitely.
+const gcpWriteTimeout = 30 * time.Second
+
 type GcpMonitor struct {
 	ctx                   context.Context
 	gcpClient             *monitoring.MetricClient
@@ -49,11 +54,32 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 		return nil
 	}
 
-	startTime := &timestamp.Timestamp{Seconds: g.earliestNotRecordedAt.Unix()}
-	endTime := &timestamp.Timestamp{Seconds: recordedAt.Unix()}
+	req := buildCreateTimeSeriesRequest(g.projectID, g.earliestNotRecordedAt, recordedAt, g.pulsesNotRecorded)
 
-	req := &monitoringpb.CreateTimeSeriesRequest{
-		Name: "projects/" + g.projectID,
+	ctx, cancel := context.WithTimeout(g.ctx, gcpWriteTimeout)
+	defer cancel()
+	if err := g.gcpClient.CreateTimeSeries(ctx, req); err != nil {
+		return fmt.Errorf("could not write time series value, %v ", err)
+	}
+
+	g.earliestNotRecordedAt = time.Time{}
+	g.pulsesNotRecorded = 0
+
+	return nil
+}
+
+func buildCreateTimeSeriesRequest(projectID string, earliest time.Time, latest time.Time, pulses int) *monitoringpb.CreateTimeSeriesRequest {
+	// Cumulative metrics require start < end; two pulses landing in the same
+	// epoch second after a quiet spell would otherwise be rejected
+	// ("The start time must be before the end time").
+	startSec := earliest.Unix()
+	endSec := latest.Unix()
+	if endSec <= startSec {
+		endSec = startSec + 1
+	}
+
+	return &monitoringpb.CreateTimeSeriesRequest{
+		Name: "projects/" + projectID,
 		TimeSeries: []*monitoringpb.TimeSeries{
 			{
 				Metric: &metricpb.Metric{
@@ -63,18 +89,18 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 				Resource: &monitoredres.MonitoredResource{
 					Type: "global",
 					Labels: map[string]string{
-						"project_id": g.projectID,
+						"project_id": projectID,
 					},
 				},
 				Points: []*monitoringpb.Point{
-					&monitoringpb.Point{
+					{
 						Interval: &monitoringpb.TimeInterval{
-							StartTime: startTime,
-							EndTime:   endTime,
+							StartTime: &timestamp.Timestamp{Seconds: startSec},
+							EndTime:   &timestamp.Timestamp{Seconds: endSec},
 						},
 						Value: &monitoringpb.TypedValue{
 							Value: &monitoringpb.TypedValue_DoubleValue{
-								DoubleValue: 0.1 * float64(g.pulsesNotRecorded),
+								DoubleValue: 0.1 * float64(pulses),
 							},
 						},
 					},
@@ -82,14 +108,4 @@ func (g *GcpMonitor) HandlePulse(recordedAt time.Time) error {
 			},
 		},
 	}
-
-	err := g.gcpClient.CreateTimeSeries(g.ctx, req)
-	if err != nil {
-		return fmt.Errorf("could not write time series value, %v ", err)
-	}
-
-	g.earliestNotRecordedAt = time.Time{}
-	g.pulsesNotRecorded = 0
-
-	return nil
 }
